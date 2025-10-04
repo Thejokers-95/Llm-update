@@ -2,7 +2,7 @@ name: Build from AI Leaderboards page (scrape & merge JSON)
 
 on:
   schedule:
-    - cron: "35 5 * * *"   # tous les jours à 05:35 UTC
+    - cron: "40 5 * * *"     # tous les jours 05:40 UTC
   workflow_dispatch:
 
 permissions:
@@ -12,8 +12,10 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     env:
-      # ➜ METS ICI L’URL EXACTE DE TA PAGE "AI Leaderboards"
-      LEADERBOARD_URL: https://example.com/ai-leaderboards
+      # 👉 METS ICI L’URL EXACTE DE TA PAGE "AI Leaderboards"
+      LEADERBOARD_URL: https://llm-stats.com/
+      # Mets à "true" pour committer un snapshot HTML si tu veux débug
+      SAVE_SNAPSHOT: "true"
 
     steps:
       - name: Checkout repo
@@ -36,10 +38,22 @@ jobs:
           import puppeteer from 'puppeteer';
 
           const URL = process.env.LEADERBOARD_URL;
+          const SAVE_SNAPSHOT = (process.env.SAVE_SNAPSHOT || '').toLowerCase() === 'true';
 
           const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
           // ---------- utils ----------
+          function cleanLines(txt){
+            return String(txt)
+              .split(/\n+/)
+              .map(s=>s.replace(/\s+/g,' ').trim())
+              .filter(Boolean);
+          }
+          function fmtTokens(n){
+            if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M tokens`;
+            if (n >= 1_000)     return `${Math.round(n/1000)}K tokens`;
+            return `${Math.round(n)} tokens`;
+          }
           function toFloat(x){
             if (x == null) return null;
             const s = String(x).replace(/[, $%]/g,'').trim();
@@ -47,78 +61,90 @@ jobs:
             const f = Number(s);
             return Number.isFinite(f) ? f : null;
           }
-          function parseTokens(x){
-            if (x == null) return null;
-            let s = String(x).toLowerCase().replace(/[, ]/g,'').replace('tokens','');
-            if (!s || /^[\-–—]$/.test(s)) return null;
-            if (/^\d+$/.test(s)) return Number(s);
-            let m = s.match(/^([\d.]+)m$/); if (m) return Math.round(Number(m[1])*1_000_000);
-            m = s.match(/^([\d.]+)k$/);     if (m) return Math.round(Number(m[1])*1_000);
-            return null;
-          }
-          function fmtTokens(n){
-            if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M tokens`;
-            if (n >= 1_000)     return `${Math.round(n/1000)}K tokens`;
-            return `${Math.round(n)} tokens`;
-          }
 
-          // Cherche une carte par titre (h2/h3) avec un regex
-          async function grabCardText(page, regex){
+          // Récupère le bloc (innerText) d’une carte par son titre
+          async function grabCardText(page, titleRegex){
             return page.evaluate((reSrc)=>{
               const re = new RegExp(reSrc, 'i');
-              const hs = [...document.querySelectorAll('h2, h3')];
-              const h = hs.find(x => re.test(x.innerText.trim()));
+              const headers = [...document.querySelectorAll('h1,h2,h3')];
+              const h = headers.find(el => re.test(el.textContent.trim()));
               if (!h) return null;
-              // on remonte jusqu'au conteneur de section (ou on prend le parent direct)
+              // remonte à un conteneur raisonnable
               let node = h;
-              for (let i=0;i<5 && node && node.tagName !== 'SECTION'; i++) node = node.parentElement;
+              for (let i=0;i<5 && node && !/^(SECTION|DIV|ARTICLE)$/i.test(node.tagName); i++){
+                node = node.parentElement;
+              }
               node = node || h.parentElement;
               return node ? node.innerText : null;
-            }, regex.source);
+            }, titleRegex.source);
           }
 
-          // Convertit le texte brut de la carte en lignes de rangs 1..5
-          function parseRankedBlock(blockText, kind){
-            // kind: 'score' (code/mmmu/gpqa) | 'value' (ctx/cheap/fast)
-            if (!blockText) return [];
-            const L = blockText
-              .split(/\n+/)
-              .map(s=>s.replace(/\s+/g,' ').trim())
-              .filter(Boolean);
+          // Découpe un bloc "carte" en 5 rangs, puis extrait nom + score/value
+          function parseRankedBlock(blockText, mode){
+            // mode: 'score' (Code/MMMU/GPQA) | 'value' (Context/Cheapest/Fastest)
+            const L = cleanLines(blockText || '');
+            if (!L.length) return [];
 
-            // Repère les index des rangs (lignes = "1", "2", ...)
+            // positions des rangs ("1", "2", ...)
             const rankIdx = [];
             for (let i=0;i<L.length;i++){
               if (/^[1-5]$/.test(L[i])) rankIdx.push(i);
             }
+            if (!rankIdx.length){
+              // fallback : lignes commençant par "1 " / "2 "…
+              for (let i=0;i<L.length;i++){
+                if (/^[1-5]\s/.test(L[i])) rankIdx.push(i);
+              }
+            }
             if (!rankIdx.length) return [];
 
-            // Découpe en 5 segments [rank .. nextRank)
-            const rows=[];
-            for (let r=0;r<rankIdx.length;r++){
+            const rows = [];
+            for (let r=0; r<rankIdx.length && rows.length<5; r++){
               const start = rankIdx[r];
               const end   = rankIdx[r+1] ?? L.length;
-              const seg   = L.slice(start+1, end); // on saute le numéro
-              // Heuristique: name = 1ère ligne "alphnum/signes", value = dernier nombre/unité plausible
-              let name = seg.find(s => /[A-Za-z0-9]/.test(s)) || '';
-              // value: dernier token chiffré compatible
-              let valLine = [...seg].reverse().find(s => /(\d[\d\.,]*\s*(?:tokens\/s|tokens|\/\s*1M\s*tokens|%|$))/i.test(s));
-              if (!valLine) valLine = seg.find(s => /(\d[\d\.,]*\s*(?:tokens\/s|tokens|\/\s*1M\s*tokens|%|$))/i.test(s));
-              let score = null, value = null;
-              if (valLine){
-                const mPct = valLine.match(/(\d+\.\d+)/);                     // 88.4
-                const mTok = valLine.match(/([\d\.,]+)\s*tokens(?:\/s)?/i);    // 10.0M tokens, 639 tokens/s
-                const mPer = valLine.match(/\$\s*([\d\.,]+)\s*\/\s*1M/i);      // $0.17 / 1M tokens
-                if (kind==='score' && mPct){
-                  score = Number(mPct[1]);
-                } else if (kind==='value' && (mTok || mPer)){
-                  value = mTok ? valLine : `$${Number(mPer[1])} / 1M tokens`;
+              // si la ligne contient "1 <name> ...": sépare-la d’abord
+              let seg = L.slice(start, end);
+              if (/^[1-5]\s+/.test(seg[0])) seg[0] = seg[0].replace(/^[1-5]\s+/, '');
+
+              // name: première ligne avec du texte “alphnum”
+              const name = seg.find(s => /[A-Za-z0-9]/.test(s)) || '';
+              if (!name) continue;
+
+              // score/value: cherche en partant de la fin
+              let val = null;
+              for (let k=seg.length-1; k>=0; k--){
+                const s = seg[k];
+
+                // % pour score (88.4)
+                const mPct = s.match(/(\d{1,3}(?:\.\d+)?)(?:\s*%|$)/);
+                // tokens / tokens/s
+                const mTok = s.match(/([\d\.,]+(?:\s*[MK])?)\s*tokens(?:\/s)?/i);
+                // prix $x / 1M tokens
+                const mPer = s.match(/\$\s*([\d\.,]+)\s*\/\s*1M/i);
+
+                if (mode==='score' && mPct){
+                  val = Number(mPct[1]); break;
+                }
+                if (mode==='value' && (mTok || mPer)){
+                  if (mTok){
+                    // normaliser 10M -> "10.0M tokens" ou "639 tokens/s"
+                    const raw = mTok[0];
+                    const isPerSec = /tokens\/s/i.test(raw);
+                    const numRaw = mTok[1].replace(/,/g,'').trim();
+                    let num;
+                    if (/m$/i.test(numRaw))      num = Number(numRaw.replace(/m/i,''))*1_000_000;
+                    else if (/k$/i.test(numRaw)) num = Number(numRaw.replace(/k/i,''))*1_000;
+                    else                          num = Number(numRaw);
+                    val = isPerSec ? `${Math.round(num)} tokens/s` : fmtTokens(num);
+                  }else{
+                    val = `$${Number(mPer[1])} / 1M tokens`;
+                  }
+                  break;
                 }
               }
-              if (!name) continue;
-              if (kind==='score' && score!=null) rows.push({name, score});
-              if (kind==='value' && value)       rows.push({name, value});
-              if (rows.length===5) break;
+
+              if (mode==='score' && val!=null) rows.push({name, score: val});
+              if (mode==='value' && val)       rows.push({name, value: val});
             }
             return rows.slice(0,5);
           }
@@ -129,39 +155,45 @@ jobs:
               args: ['--no-sandbox','--disable-setuid-sandbox']
             });
             const page = await browser.newPage();
-            await page.setViewport({width: 1440, height: 900});
+            await page.setViewport({width: 1440, height: 1000});
             await page.goto(URL, {waitUntil: 'networkidle2', timeout: 90000});
 
-            // scroll pour charger (au cas où lazy)
-            for (let i=0;i<10;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(300); }
+            // Scroll pour charger toutes les cartes
+            for (let i=0;i<12;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(300); }
 
-            // Récup des 6 cartes (titres tolérants)
-            const codeText   = await grabCardText(page, /(best\s+llm.*code|aider\s+polyglot\s+benchmark)/i);
-            const multiText  = await grabCardText(page, /(best\s+multimodal\s+llm|mmmu\s+benchmark)/i);
-            const knowText   = await grabCardText(page, /(best\s+llm.*knowledge|gpqa\s+benchmark)/i);
-            const ctxText    = await grabCardText(page, /(longest\s+context|max\s+input\s+tokens)/i);
-            const cheapText  = await grabCardText(page, /(cheapest\s+api\s+provider|input\s+cost|maverick\s+input\s+cost)/i);
-            const fastText   = await grabCardText(page, /(fastest\s+api\s+provider|throughput|maverick\s+throughput)/i);
+            // Snapshot HTML pour debug (optionnel)
+            if (SAVE_SNAPSHOT){
+              const html = await page.content();
+              await fs.writeFile('leaderboard-snapshot.html', html, 'utf8');
+            }
 
-            const code   = parseRankedBlock(codeText,  'score');
-            const multi  = parseRankedBlock(multiText, 'score');
-            const know   = parseRankedBlock(knowText,  'score');
-            const ctx    = parseRankedBlock(ctxText,   'value');
-            const cheap  = parseRankedBlock(cheapText, 'value');
-            const fast   = parseRankedBlock(fastText,  'value');
+            // Titres tolérants
+            const codeTxt  = await grabCardText(page, /(best\s+llm.*code|aider\s+polyglot)/i);
+            const mmuTxt   = await grabCardText(page, /(best\s+multimodal\s+llm|mmmu\s+benchmark)/i);
+            const gpqaTxt  = await grabCardText(page, /(best\s+llm.*knowledge|gpqa\s+benchmark)/i);
+            const ctxTxt   = await grabCardText(page, /(longest\s+context|max\s+input\s+tokens)/i);
+            const cheapTxt = await grabCardText(page, /(cheapest\s+api\s+provider|input\s+cost|maverick\s+input\s+cost)/i);
+            const fastTxt  = await grabCardText(page, /(fastest\s+api\s+provider|throughput|maverick\s+throughput)/i);
 
             await browser.close();
 
-            // Merge avec JSON existant
+            const code   = parseRankedBlock(codeTxt,  'score');
+            const multi  = parseRankedBlock(mmuTxt,   'score');
+            const know   = parseRankedBlock(gpqaTxt,  'score');
+            const ctx    = parseRankedBlock(ctxTxt,   'value');
+            const cheap  = parseRankedBlock(cheapTxt, 'value');
+            const fast   = parseRankedBlock(fastTxt,  'value');
+
+            // Fusion avec JSON existant
             let existing = {};
             try { existing = JSON.parse(await fs.readFile('top-leaderboards.json','utf8')); } catch {}
             const merged = {
-              code:           code.length  ? code  : (existing.code || []),
-              multimodal:     multi.length ? multi : (existing.multimodal || []),
-              knowledge:      know.length  ? know  : (existing.knowledge || []),
-              longest_context:ctx.length   ? ctx   : (existing.longest_context || []),
-              cheapest:       cheap.length ? cheap : (existing.cheapest || []),
-              fastest:        fast.length  ? fast  : (existing.fastest || []),
+              code:            code.length  ? code  : (existing.code || []),
+              multimodal:      multi.length ? multi : (existing.multimodal || []),
+              knowledge:       know.length  ? know  : (existing.knowledge || []),
+              longest_context: ctx.length   ? ctx   : (existing.longest_context || []),
+              cheapest:        cheap.length ? cheap : (existing.cheapest || []),
+              fastest:         fast.length  ? fast  : (existing.fastest || []),
             };
 
             await fs.writeFile('top-leaderboards.json', JSON.stringify(merged, null, 2), 'utf8');
@@ -172,13 +204,14 @@ jobs:
       - name: Run scraper
         run: node scrape_leaderboards.mjs
 
-      - name: Commit & push if changed
+      - name: Commit & push if changed (and optional snapshot)
         run: |
           echo "Changed files (before):"; git status --porcelain || true
-          if ! git diff --quiet -- top-leaderboards.json; then
+          if ! git diff --quiet -- top-leaderboards.json leaderboard-snapshot.html; then
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
             git add top-leaderboards.json
+            if [ -f leaderboard-snapshot.html ]; then git add leaderboard-snapshot.html; fi
             git commit -m "chore: update from AI Leaderboards page"
             git push
           else
