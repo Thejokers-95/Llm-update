@@ -11,12 +11,20 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout THIS repo (where we publish the JSON)
         uses: actions/checkout@v4
+
+      - name: Clone upstream official data repo
+        run: |
+          rm -rf upstream
+          git clone --depth=1 https://github.com/JonathanChavezTamales/llm-leaderboard.git upstream
+          ls -la upstream/data || true
+          ls -la upstream/data/models || true
+          ls -la upstream/data/model_benchmarks || true
+          ls -la upstream/data/provider_models || true
+          ls -la upstream/data/providers || true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -24,232 +32,234 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: python -m pip install requests
+        run: python -m pip install --quiet --upgrade pip
 
-      - name: Write builder (models + model_benchmarks + provider_models)
+      - name: Build top-leaderboards.json (local scan)
         run: |
-          cat > build_top.py << 'PY'
-          import os, json, time, math, requests, re, sys, random, datetime
-          from typing import Any, Dict, List
+          python - << 'PY'
+          import os, json, math, re, datetime
 
-          OWNER="JonathanChavezTamales"; REPO="llm-leaderboard"
-          API=f"https://api.github.com/repos/{OWNER}/{REPO}/contents/data"
-          RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
-
-          S=requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/4.3"})
-          tok=os.getenv("GITHUB_TOKEN")
-          if tok: S.headers["Authorization"]=f"Bearer {tok}"
-
-          def _get(url, timeout=30, tries=4, backoff=0.6):
-              for i in range(tries):
-                  try:
-                      r=S.get(url, timeout=timeout)
-                      if r.status_code==200: return r
-                      if r.status_code in (429,403):
-                          time.sleep(backoff*(2**i)+random.random()*0.2); continue
-                      if r.status_code==404: return None
-                  except Exception:
-                      pass
-                  time.sleep(backoff*(i+1))
-              return None
-
-          def list_dir(path:str):
-              r=_get(f"{API}/{path}".rstrip("/"))
-              if not r: return []
-              try:
-                  d=r.json()
-                  return d if isinstance(d,list) else []
-              except: return []
-
-          def fetch_json(path:str):
-              r=_get(f"{RAW}/{path}".lstrip("/"))
-              if not r: return None
-              try: return r.json()
-              except: return None
-
-          def to_float(x):
-              try: return float(x)
-              except: return None
+          ROOT = "upstream/data"
 
           def normalize_score(v):
-              # 0.884 -> 88.4 ; 88.4 reste 88.4
-              f = to_float(v)
-              if f is None: return None
-              if f <= 1.0: f *= 100.0
+              try:
+                  f = float(v)
+              except Exception:
+                  return None
+              if f <= 1.0:
+                  f *= 100.0
               return round(f, 1)
 
-          # ---------- Providers (prix & débit)
-          def collect_providers():
-              cheap, fast = [], []
-              # 1) provider_models/*.json (préféré)
-              for f in list_dir("provider_models"):
-                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
-                  prov = f["name"].removesuffix(".json")
-                  arr = fetch_json(f"provider_models/{f['name']}")
-                  if not isinstance(arr, list): continue
-                  best_cost, best_thr = None, None
-                  for m in arr:
-                      c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
-                      t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
-                      cf, tf = to_float(c), to_float(t)
-                      if cf is not None: best_cost = cf if best_cost is None else min(best_cost, cf)
-                      if tf is not None: best_thr  = tf if best_thr  is None else max(best_thr,  tf)
-                  if best_cost is not None: cheap.append({"name":prov, "value": f"${best_cost:.2f} / 1M tokens"})
-                  if best_thr  is not None: fast.append ({"name":prov, "value": f"{int(round(best_thr))} tokens/s"})
+          def to_float(x):
+              try:
+                  return float(x)
+              except Exception:
+                  return None
 
-              # 2) fallback providers/*/models.json
-              if not cheap or not fast:
-                  for p in [i["name"] for i in list_dir("providers") if i.get("type")=="dir"]:
-                      arr = fetch_json(f"providers/{p}/models.json")
-                      if not isinstance(arr, list): continue
-                      best_cost, best_thr = None, None
-                      for m in arr:
-                          c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
-                          t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
-                          cf, tf = to_float(c), to_float(t)
-                          if cf is not None: best_cost = cf if best_cost is None else min(best_cost, cf)
-                          if tf is not None: best_thr  = tf if best_thr  is None else max(best_thr,  tf)
-                      if best_cost is not None: cheap.append({"name":p, "value": f"${best_cost:.2f} / 1M tokens"})
-                      if best_thr  is not None: fast.append ({"name":p, "value": f"{int(round(best_thr))} tokens/s"})
-
-              def parse_cost(v):
-                  try: return float(v.split("$")[1].split("/")[0].strip())
-                  except: return math.inf
-              cheap.sort(key=lambda x: parse_cost(x["value"]))
-              fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
-              return {"cheapest": cheap[:5], "fastest": fast[:5]}
-
-          # ---------- Benchmarks (code/multimodal/knowledge) depuis data/models/*.json
+          # -------- MODELS: lire upstream/data/models/*.json
           CODE_KEYS       = ["aider_polyglot","aider","code","coding","polyglot"]
           MULTI_KEYS      = ["mmmu","multimodal","vision"]
           KNOWLEDGE_KEYS  = ["gpqa","gpqa_diamond","knowledge"]
+          CTX_KEYS        = ["context_length","max_context_length","input_context","context","window"]
 
-          def pull_score(d:Dict[str,Any], keys:List[str]):
-              # 1) d["scores"][key]
+          def pull_score(d, keys):
               scores = d.get("scores") or {}
               for k in keys:
                   if isinstance(scores, dict) and k in scores:
                       s = normalize_score(scores[k])
-                      if s is not None: return s
-              # 2) d["benchmarks"][key] -> {score: x} | x
+                      if s is not None:
+                          return s
               benches = d.get("benchmarks") or {}
               for k in keys:
                   b = benches.get(k)
                   if isinstance(b, dict) and "score" in b:
                       s = normalize_score(b["score"])
-                      if s is not None: return s
+                      if s is not None:
+                          return s
                   elif b is not None:
                       s = normalize_score(b)
-                      if s is not None: return s
+                      if s is not None:
+                          return s
               return None
 
-          def collect_models_primary():
-              code=[]; multi=[]; know=[]; ctx=[]
-              for f in list_dir("models"):
-                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
-                  d = fetch_json(f"models/{f['name']}")
-                  if not isinstance(d, dict): continue
-                  name = d.get("name") or d.get("id") or f["name"].removesuffix(".json")
+          code, multi, know, ctx = [], [], [], []
+
+          models_dir = os.path.join(ROOT, "models")
+          if os.path.isdir(models_dir):
+              for fname in os.listdir(models_dir):
+                  if not fname.endswith(".json"): continue
+                  path = os.path.join(models_dir, fname)
+                  try:
+                      d = json.load(open(path, "r", encoding="utf-8"))
+                  except Exception:
+                      continue
+                  name = d.get("name") or d.get("id") or os.path.splitext(fname)[0]
 
                   sc = pull_score(d, CODE_KEYS)
                   sm = pull_score(d, MULTI_KEYS)
                   sk = pull_score(d, KNOWLEDGE_KEYS)
-                  if sc is not None: code.append({"name":name,"score":sc})
-                  if sm is not None: multi.append({"name":name,"score":sm})
-                  if sk is not None: know.append({"name":name,"score":sk})
+                  if sc is not None: code.append({"name": name, "score": sc})
+                  if sm is not None: multi.append({"name": name, "score": sm})
+                  if sk is not None: know.append({"name": name, "score": sk})
 
                   # contexte
-                  c = d.get("context_length") or d.get("max_context_length") or d.get("input_context") or d.get("context") or d.get("window")
-                  v = to_float(c)
-                  if v is None and c is not None:
-                      s=str(c).lower().replace("tokens","").strip(); mul=1
-                      if "m" in s: s=s.replace("m",""); mul=1_000_000
-                      elif "k" in s: s=s.replace("k",""); mul=1_000
-                      try: v=float(s)*mul
-                      except: v=None
-                  if v and v>0: ctx.append({"name":name,"_tokens":int(v)})
+                  c_val = None
+                  for ck in CTX_KEYS:
+                      if ck in d and d[ck] not in (None, ""):
+                          c_val = d[ck]; break
+                  if c_val is not None:
+                      v = to_float(c_val)
+                      if v is None:
+                          s = str(c_val).lower().replace("tokens","").strip()
+                          mul = 1
+                          if "m" in s:
+                              s = s.replace("m",""); mul = 1_000_000
+                          elif "k" in s:
+                              s = s.replace("k",""); mul = 1_000
+                          try:
+                              v = float(s) * mul
+                          except Exception:
+                              v = None
+                      if v and v > 0:
+                          ctx.append({"name": name, "_tokens": int(v)})
 
-                  time.sleep(0.01)
+          # -------- Fallback: si une section est vide, tenter upstream/data/model_benchmarks/*.json
+          mb_dir = os.path.join(ROOT, "model_benchmarks")
+          def load_top_from_mb(pattern):
+              if not os.path.isdir(mb_dir): return []
+              regex = re.compile(pattern, re.I)
+              candidate = None
+              for fname in os.listdir(mb_dir):
+                  if not fname.endswith(".json"): continue
+                  if regex.search(fname):
+                      candidate = os.path.join(mb_dir, fname)
+                      break
+              if not candidate: return []
+              try:
+                  js = json.load(open(candidate, "r", encoding="utf-8"))
+              except Exception:
+                  return []
+              items = []
+              if isinstance(js, list):
+                  for it in js:
+                      nm = it.get("name") or it.get("model") or it.get("id")
+                      sc = normalize_score(it.get("score") or it.get("value"))
+                      if nm and sc is not None:
+                          items.append({"name": nm, "score": sc})
+              elif isinstance(js, dict):
+                  for nm, sc in js.items():
+                      sc = normalize_score(sc)
+                      if sc is not None:
+                          items.append({"name": nm, "score": sc})
+              items.sort(key=lambda x: x["score"], reverse=True)
+              return items[:5]
 
-              code.sort(key=lambda x:x["score"], reverse=True)
-              multi.sort(key=lambda x:x["score"], reverse=True)
-              know.sort(key=lambda x:x["score"], reverse=True)
-              ctx.sort(key=lambda x:x["_tokens"], reverse=True)
+          if not code:
+              code = load_top_from_mb(r"(aider|polyglot|code)")
+          if not multi:
+              multi = load_top_from_mb(r"(mmmu|multimodal|vision)")
+          if not know:
+              know = load_top_from_mb(r"(gpqa|knowledge)")
 
-              def fmt(n):
-                  if n>=1_000_000: return f"{n/1_000_000:.1f}M tokens"
-                  if n>=1000:     return f"{int(n/1000)}K tokens"
-                  return f"{int(n)} tokens"
+          # -------- Format contexte (Top 5)
+          ctx.sort(key=lambda x: x.get("_tokens", 0), reverse=True)
+          longest_context = []
+          for r in ctx[:5]:
+              n = r["_tokens"]
+              if n >= 1_000_000: val = f"{n/1_000_000:.1f}M tokens"
+              elif n >= 1000:    val = f"{int(n/1000)}K tokens"
+              else:              val = f"{int(n)} tokens"
+              longest_context.append({"name": r["name"], "value": val})
 
-              ctx_fmt=[{"name":r["name"],"value":fmt(r["_tokens"])} for r in ctx[:5]]
+          # -------- PROVIDERS: provider_models/*.json, fallback providers/*/models.json
+          cheapest, fastest = [], []
 
-              return {
-                  "code": code[:5],
-                  "multimodal": multi[:5],
-                  "knowledge": know[:5],
-                  "longest_context": ctx_fmt
-              }
+          pm_dir = os.path.join(ROOT, "provider_models")
+          if os.path.isdir(pm_dir):
+              for fname in os.listdir(pm_dir):
+                  if not fname.endswith(".json"): continue
+                  prov = os.path.splitext(fname)[0]
+                  try:
+                      arr = json.load(open(os.path.join(pm_dir, fname), "r", encoding="utf-8"))
+                  except Exception:
+                      continue
+                  if not isinstance(arr, list): continue
+                  best_cost, best_thr = None, None
+                  for m in arr:
+                      c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
+                      t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
+                      cf = to_float(c); tf = to_float(t)
+                      if cf is not None:
+                          best_cost = cf if best_cost is None else min(best_cost, cf)
+                      if tf is not None:
+                          best_thr = tf if best_thr is None else max(best_thr, tf)
+                  if best_cost is not None:
+                      cheapest.append({"name": prov, "value": f"${best_cost:.2f} / 1M tokens"})
+                  if best_thr is not None:
+                      fastest.append({"name": prov, "value": f"{int(round(best_thr))} tokens/s"})
 
-          # ---------- Fallback: data/model_benchmarks/*.json si une section est vide
-          def collect_models_fallback(current):
-              files = list_dir("model_benchmarks")
-              names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
+          # Fallback providers/*/models.json
+          prov_dir = os.path.join(ROOT, "providers")
+          if (not cheapest or not fastest) and os.path.isdir(prov_dir):
+              for prov in os.listdir(prov_dir):
+                  pdir = os.path.join(prov_dir, prov)
+                  if not os.path.isdir(pdir): continue
+                  models_path = os.path.join(pdir, "models.json")
+                  if not os.path.isfile(models_path): continue
+                  try:
+                      arr = json.load(open(models_path, "r", encoding="utf-8"))
+                  except Exception:
+                      continue
+                  if not isinstance(arr, list): continue
+                  best_cost, best_thr = None, None
+                  for m in arr:
+                      c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
+                      t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
+                      cf = to_float(c); tf = to_float(t)
+                      if cf is not None:
+                          best_cost = cf if best_cost is None else min(best_cost, cf)
+                      if tf is not None:
+                          best_thr = tf if best_thr is None else max(best_thr, tf)
+                  if best_cost is not None:
+                      cheapest.append({"name": prov, "value": f"${best_cost:.2f} / 1M tokens"})
+                  if best_thr is not None:
+                      fastest.append({"name": prov, "value": f"{int(round(best_thr))} tokens/s"})
 
-              def load_top(regex):
-                  pat = re.compile(regex, re.I)
-                  cand = next((n for n in names if pat.search(n)), None)
-                  if not cand: return []
-                  js = fetch_json(f"model_benchmarks/{cand}")
-                  items=[]
-                  if isinstance(js, list):
-                      for it in js:
-                          nm = it.get("name") or it.get("model") or it.get("id")
-                          sc = normalize_score(it.get("score") or it.get("value"))
-                          if nm and sc is not None: items.append({"name":nm,"score":sc})
-                  elif isinstance(js, dict):
-                      for nm, sc in js.items():
-                          sc = normalize_score(sc)
-                          if sc is not None: items.append({"name":nm,"score":sc})
-                  items.sort(key=lambda x:x["score"], reverse=True)
-                  return items[:5]
+          def parse_cost(v):
+              try:
+                  return float(v.split("$")[1].split("/")[0].strip())
+              except Exception:
+                  return math.inf
 
-              if not current.get("code"):
-                  current["code"] = load_top(r"(aider|polyglot|code)")
-              if not current.get("multimodal"):
-                  current["multimodal"] = load_top(r"(mmmu|multimodal|vision)")
-              if not current.get("knowledge"):
-                  current["knowledge"] = load_top(r"(gpqa|knowledge)")
-              return current
+          cheapest.sort(key=lambda x: parse_cost(x["value"]))
+          fastest.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
+          cheapest = cheapest[:5]
+          fastest  = fastest[:5]
 
-          def main():
-              top = collect_models_primary()
-              top = collect_models_fallback(top)
-              top.update(collect_providers())
+          data = {
+              "code": code[:5],
+              "multimodal": multi[:5],
+              "knowledge": know[:5],
+              "longest_context": longest_context,
+              "cheapest": cheapest,
+              "fastest": fastest
+          }
 
-              counts = {k: (len(v) if isinstance(v,list) else 0) for k,v in top.items()}
-              print("SECTION COUNTS:", counts)
+          counts = {k: (len(v) if isinstance(v, list) else 0) for k, v in data.items()}
+          print("SECTION COUNTS:", counts)
+          with open("top-leaderboards.json","w",encoding="utf-8") as f:
+              json.dump(data, f, indent=2, ensure_ascii=False)
 
-              with open("top-leaderboards.json","w",encoding="utf-8") as f:
-                  json.dump(top, f, indent=2, ensure_ascii=False)
+          with open("build-log.json","w",encoding="utf-8") as f:
+              json.dump({
+                  "generated_at_utc": datetime.datetime.utcnow().isoformat()+"Z",
+                  "section_counts": counts
+              }, f, indent=2, ensure_ascii=False)
 
-              log = {
-                "generated_at_utc": datetime.datetime.utcnow().isoformat()+"Z",
-                "section_counts": counts
-              }
-              with open("build-log.json","w",encoding="utf-8") as f:
-                json.dump(log, f, indent=2, ensure_ascii=False)
-
-              print("OK: wrote top-leaderboards.json & build-log.json")
-              print("\\n===== top-leaderboards.json (preview) =====")
-              print(json.dumps(top, indent=2, ensure_ascii=False)[:2000])
-
-          if __name__=="__main__":
-              main()
+          print("OK: wrote top-leaderboards.json & build-log.json")
+          print("\\n===== top-leaderboards.json (preview) =====")
+          print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
           PY
-
-      - name: Run builder
-        run: python build_top.py
 
       - name: Commit & push if changed
         run: |
@@ -258,7 +268,7 @@ jobs:
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
             git add top-leaderboards.json build-log.json
-            git commit -m "chore: daily build from official repo"
+            git commit -m "chore: build from official repo (local clone)"
             git push
           else
             echo "No changes to files"
