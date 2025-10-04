@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LEADERBOARD_URL: https://llm-stats.com/
-      SAVE_SNAPSHOT: "true"
+      SAVE_SNAPSHOT: "true"   # commite aussi HTML/PNG pour debug
 
     steps:
       - name: Checkout repo
@@ -47,106 +47,13 @@ jobs:
       - name: Install Chrome for Testing
         run: npx puppeteer browsers install chrome
 
-      - name: Write scraper
-        run: |
-          cat > scrape_leaderboards.mjs <<'JS'
-          import fs from 'node:fs/promises'
-          import puppeteer from 'puppeteer-extra'
-          import StealthPlugin from 'puppeteer-extra-plugin-stealth'
-          import { executablePath } from 'puppeteer'
-          const URL = process.env.LEADERBOARD_URL || 'https://llm-stats.com/'
-          const SAVE_SNAPSHOT = (process.env.SAVE_SNAPSHOT || '').toLowerCase()==='true'
-          puppeteer.use(StealthPlugin())
-          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms))
-          const TITLES = {
-            code:  [/best\s+llm.*code/i, /aider\s+polyglot/i],
-            multi: [/best\s+multimodal\s+llm/i, /mmmu\s+benchmark/i],
-            know:  [/best\s+llm.*knowledge/i, /gpqa\s+benchmark/i],
-            ctx:   [/longest\s+context/i, /max\s+input\s+tokens/i],
-            cheap: [/cheapest\s+api\s+provider/i, /input\s+cost/i, /maverick\s+input\s+cost/i],
-            fast:  [/fastest\s+api\s+provider/i, /throughput/i, /maverick\s+throughput/i],
-          }
-          const clean = s => String(s).replace(/\s+/g,' ').trim()
-          async function getCardHandle(page, regexes){
-            const handle = await page.evaluateHandle((reSrcs)=>{
-              const regs = reSrcs.map(s=>new RegExp(s,'i'))
-              const hs = [...document.querySelectorAll('h2,h3')]
-              const h  = hs.find(el => regs.some(r=>r.test(el.textContent.trim())))
-              if(!h) return null
-              let n=h
-              for(let i=0;i<6 && n && !String(n.className||'').includes('p-6');i++) n=n.parentElement
-              return n || h.parentElement
-            }, regexes.map(r=>r.source))
-            return handle.asElement()
-          }
-          async function parseCard(page, cardEl, isScore){
-            if(!cardEl) return []
-            const rows = await cardEl.$$('[class*="justify-between"]')
-            const out=[]
-            for(const row of rows){
-              const nameContainers = await row.$$('div.min-w-0.flex-1')
-              let name=''
-              if(nameContainers.length){
-                const deep = nameContainers[nameContainers.length-1]
-                const a = await deep.$('a') || await deep.$('span')
-                if(a){ name = clean(await (await a.getProperty('innerText')).jsonValue()) }
-              }
-              const valSpan = await row.$('span.tabular-nums')
-              const rawVal  = valSpan ? clean(await (await valSpan.getProperty('innerText')).jsonValue()) : ''
-              if(!name) continue
-              if(isScore){
-                const m = rawVal.match(/(\d{1,3}(?:\.\d+)?)/)
-                if(m) out.push({name, score: parseFloat(m[1])})
-              }else{
-                out.push({name, value: rawVal})
-              }
-              if(out.length===5) break
-            }
-            return out
-          }
-          (async ()=>{
-            const browser = await puppeteer.launch({
-              headless: 'new',
-              executablePath: executablePath(),
-              args: ['--no-sandbox','--disable-setuid-sandbox','--window-size=1440,1024']
-            })
-            const page = await browser.newPage()
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
-            await page.goto(URL, {waitUntil:'domcontentloaded', timeout: 90000})
-            for(let i=0;i<12;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(300) }
-            if(SAVE_SNAPSHOT){
-              await page.screenshot({path:'leaderboard-snapshot.png', fullPage:true})
-              await fs.writeFile('leaderboard-snapshot.html', await page.content(), 'utf8')
-            }
-            const codeEl  = await getCardHandle(page, TITLES.code)
-            const multiEl = await getCardHandle(page, TITLES.multi)
-            const knowEl  = await getCardHandle(page, TITLES.know)
-            const ctxEl   = await getCardHandle(page, TITLES.ctx)
-            const cheapEl = await getCardHandle(page, TITLES.cheap)
-            const fastEl  = await getCardHandle(page, TITLES.fast)
-            const code  = await parseCard(page, codeEl,  true)
-            const multi = await parseCard(page, multiEl, true)
-            const know  = await parseCard(page, knowEl,  true)
-            const ctx   = await parseCard(page, ctxEl,   false)
-            const cheap = await parseCard(page, cheapEl, false)
-            const fast  = await parseCard(page, fastEl,  false)
-            const data = { code, multimodal: multi, knowledge: know, longest_context: ctx, cheapest: cheap, fastest: fast }
-            await fs.writeFile('top-leaderboards.json', JSON.stringify(data, null, 2), 'utf8')
-            // métriques pour la gate
-            const counts = Object.fromEntries(Object.entries(data).map(([k,v])=>[k, v.length]))
-            await fs.writeFile('counts.json', JSON.stringify(counts), 'utf8')
-            console.log('COUNTS:', counts)
-            await browser.close()
-          })().catch(e=>{ console.error(e); process.exit(1) })
-          JS
-
       - name: Run scraper
         run: node scrape_leaderboards.mjs
 
       - name: Validate data (gate)
         id: gate
         run: |
-          node -e "const c=require('./counts.json'); const ok=(c.code===5 && c.multimodal===5 && c.knowledge===5 && c.longest_context>0 && c.cheapest>0 && c.fastest>0); console.log('OK=',ok); if(!ok) process.exit(2);"
+          node -e "const c=require('./counts.json'); const ok=(c.code===5 && c.multimodal===5 && c.knowledge===5 && c.longest_context>0 && c.cheapest>1 && c.fastest>1 && c.table>0); console.log('OK=',ok); if(!ok){console.error('Counts:',c); process.exit(2);} else {console.log('Counts:',c)}"
 
       - name: Commit & push results
         if: steps.gate.outcome == 'success'
@@ -155,7 +62,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "update: top-leaderboards.json from llm-stats (puppeteer)"
+            git commit -m "update: top-leaderboards.json (table + cards) from llm-stats"
             git push
           else
             echo "No changes to commit."
@@ -167,12 +74,11 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const body = fs.existsSync('leaderboard-snapshot.html')
-              ? "Validation failed. See snapshot files committed in the repo (HTML/PNG)."
-              : "Validation failed and no snapshot generated.";
+            const counts = fs.existsSync('counts.json') ? JSON.stringify(require('./counts.json')) : 'n/a';
+            const hasSnap = fs.existsSync('leaderboard-snapshot.html') && fs.existsSync('leaderboard-snapshot.png');
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: "Leaderboards build failed – data gate",
-              body
+              body: `Validation failed.\nCounts=${counts}\nSnapshots committed=${hasSnap ? 'yes' : 'no'}`
             });
