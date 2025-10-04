@@ -2,7 +2,7 @@ name: Build & Publish Top Leaderboards (from official repo)
 
 on:
   schedule:
-    - cron: "15 5 * * *"   # chaque jour à 05:15 UTC
+    - cron: "15 5 * * *"   # tous les jours à 05:15 UTC
   workflow_dispatch:
 
 permissions:
@@ -11,6 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Donné automatiquement par GitHub Actions → augmente largement les quotas API
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repo
@@ -24,10 +27,10 @@ jobs:
       - name: Install deps
         run: python -m pip install requests
 
-      - name: Write builder (pattern-based, with logs)
+      - name: Write builder (robust + token + retries)
         run: |
           cat > build_top.py << 'PY'
-          import os, json, time, math, requests, re
+          import os, json, time, math, requests, re, sys, random
           from typing import Any, Dict, List
 
           OWNER="JonathanChavezTamales"; REPO="llm-leaderboard"
@@ -35,18 +38,44 @@ jobs:
           RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
 
           S=requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/2.4"})
+          S.headers.update({"Accept":"application/vnd.github+json",
+                            "User-Agent":"llm-top-builder/3.0"})
+          tok=os.getenv("GITHUB_TOKEN")
+          if tok: S.headers["Authorization"]=f"Bearer {tok}"
+
+          def _get(url, timeout=30, tries=4, backoff=0.6):
+              err=None
+              for i in range(tries):
+                  try:
+                      r=S.get(url, timeout=timeout)
+                      if r.status_code==200: return r
+                      if r.status_code in (429, 403):  # rate limit
+                          sleep=backoff*(2**i)+random.random()*0.2
+                          time.sleep(sleep); continue
+                      # 404 possible sur certains dossiers: retour None
+                      if r.status_code==404: return None
+                      err=r
+                  except Exception as e:
+                      err=e
+                  time.sleep(backoff*(i+1))
+              if err is None: return None
+              if isinstance(err, requests.Response):
+                  print(f"GET {url} -> HTTP {err.status_code}", file=sys.stderr)
+              else:
+                  print(f"GET {url} -> {err}", file=sys.stderr)
+              return None
 
           def list_dir(path:str):
-              r=S.get(f"{API}/{path}".rstrip("/"),timeout=30)
-              if r.status_code==404: return []
-              r.raise_for_status()
-              d=r.json()
-              return d if isinstance(d,list) else []
+              r=_get(f"{API}/{path}".rstrip("/"))
+              if not r: return []
+              try:
+                  d=r.json()
+                  return d if isinstance(d,list) else []
+              except: return []
 
           def fetch_json(path:str):
-              r=S.get(f"{RAW}/{path}".lstrip("/"),timeout=30)
-              if r.status_code!=200: return None
+              r=_get(f"{RAW}/{path}".lstrip("/"))
+              if not r: return None
               try: return r.json()
               except: return None
 
@@ -137,6 +166,7 @@ jobs:
               if need:
                   files = list_dir("model_benchmarks")
                   names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
+
                   def load_top(match_regex):
                       pat = re.compile(match_regex, re.I)
                       cand = next((n for n in names if pat.search(n)), None)
@@ -159,7 +189,7 @@ jobs:
                   if "multimodal" in need: out["multimodal"] = load_top(r"(mmmu|multimodal|vision)")
                   if "knowledge" in need:  out["knowledge"]  = load_top(r"(gpqa|knowledge)")
 
-              # Formatage contexte
+              # Contexte formaté
               ctx = out["longest_context"]
               ctx.sort(key=lambda x: x.get("_tokens",0), reverse=True)
               formatted=[]
@@ -171,7 +201,7 @@ jobs:
                   formatted.append({"name":r["name"], "value": val})
               out["longest_context"] = formatted
 
-              # tri top 5
+              # Tri top 5
               out["code"].sort(key=lambda x:x["score"], reverse=True)
               out["multimodal"].sort(key=lambda x:x["score"], reverse=True)
               out["knowledge"].sort(key=lambda x:x["score"], reverse=True)
@@ -199,8 +229,7 @@ jobs:
 
       - name: Commit & push if changed
         run: |
-          set -e
-          echo "Changed files:"
+          echo "Changed files (before):"
           git status --porcelain || true
           if ! git diff --quiet -- top-leaderboards.json; then
             git config user.name  "leaderboards-bot"
@@ -211,3 +240,5 @@ jobs:
           else
             echo "No changes to top-leaderboards.json"
           fi
+          echo "Changed files (after):"
+          git status --porcelain || true
