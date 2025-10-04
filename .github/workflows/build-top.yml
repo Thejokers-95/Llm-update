@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -23,7 +24,7 @@ jobs:
       - name: Install deps
         run: python -m pip install requests
 
-          - name: Write builder (pattern-based, with logs)
+      - name: Write builder (pattern-based, with logs)
         run: |
           cat > build_top.py << 'PY'
           import os, json, time, math, requests, re
@@ -54,7 +55,7 @@ jobs:
               except: return None
 
           def normalize_score(v):
-              """ 0.884 -> 88.4 ; 88.4 reste 88.4 """
+              """0.884 -> 88.4 ; 88.4 reste 88.4"""
               f = to_float(v)
               if f is None: return None
               if f <= 1.0: f *= 100.0
@@ -104,7 +105,7 @@ jobs:
                           if v is None:
                               for k in keys:
                                   b = benches.get(k)
-                                  if isinstance(b,dict) and "score" in b: v = b["score"]; break
+                                  if isinstance(b,dict) and "score" in b: v=b["score"]; break
                           return normalize_score(v)
 
                       code = pull(["aider_polyglot","aider","code","coding"])
@@ -137,7 +138,6 @@ jobs:
                   files = list_dir("model_benchmarks")
                   names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
                   def load_top(match_regex):
-                      # cherche le premier fichier dont le nom matche
                       pat = re.compile(match_regex, re.I)
                       cand = next((n for n in names if pat.search(n)), None)
                       if not cand: return []
@@ -183,7 +183,6 @@ jobs:
           def main():
               data = collect_models()
               data.update(collect_providers())
-              # log minimal des counts
               counts = {k: (len(v) if isinstance(v,list) else 0) for k,v in data.items()}
               print("SECTION COUNTS:", counts)
               with open("top-leaderboards.json","w",encoding="utf-8") as f:
@@ -193,16 +192,17 @@ jobs:
           if __name__=="__main__":
               main()
           PY
+
       - name: Run builder
         run: python build_top.py
 
       - name: Commit & push if changed
         run: |
-          if ! git diff --quiet -- top-leaderboards.json build-log.json; then
+          if ! git diff --quiet -- top-leaderboards.json; then
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
-            git add top-leaderboards.json build-log.json
-            git commit -m "chore: daily build from official repo"
+            git add top-leaderboards.json
+            git commit -m "chore: daily top-leaderboards.json update"
             git push
           else
             echo "No changes"
