@@ -2,7 +2,7 @@ name: Build & Publish Top Leaderboards (from official repo)
 
 on:
   schedule:
-    - cron: "15 5 * * *"  # tous les jours à 05:15 UTC
+    - cron: "15 5 * * *"   # tous les jours à 05:15 UTC
   workflow_dispatch:
 
 permissions:
@@ -23,153 +23,188 @@ jobs:
       - name: Install deps
         run: python -m pip install requests
 
-      # On écrit le script Python directement dans le workflow (pas besoin de fichier séparé)
-      - name: Write build script
+      - name: Write builder
         run: |
-          cat > build_top_leaderboards.py << 'PY'
-          #!/usr/bin/env python3
-          import os, time, json, math, requests
+          cat > build_top.py << 'PY'
+          import os, json, time, math, requests, sys
+          from typing import Any, Dict, List
 
-          OWNER = "JonathanChavezTamales"
-          REPO  = "llm-leaderboard"
-          BASE_API = f"https://api.github.com/repos/{OWNER}/{REPO}/contents/data"
-          BASE_RAW = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
+          OWNER="JonathanChavezTamales"; REPO="llm-leaderboard"
+          API=f"https://api.github.com/repos/{OWNER}/{REPO}/contents/data"
+          RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
 
-          S = requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/1.0"})
+          S=requests.Session()
+          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/2.0"})
 
-          def gh_list(path):
-              url = f"{BASE_API}/{path}".rstrip("/")
-              r = S.get(url, timeout=30)
-              if r.status_code == 404: return []
+          # --- alias robustes pour suivre l'évolution du repo ---
+          ALIASES = {
+            "code":         ["aider_polyglot","aider","code","coding"],
+            "multimodal":   ["mmmu","multimodal","vision"],
+            "knowledge":    ["gpqa","knowledge"],
+            "context":      ["context_length","max_context_length","window","context"],
+            "cost":         ["input_cost_per_million","input_cost","price_per_million"],
+            "throughput":   ["tokens_per_second","throughput","tps"]
+          }
+
+          LOG = {"models":[], "providers":[]}
+
+          def list_dir(path:str)->List[Dict[str,Any]]:
+              r=S.get(f"{API}/{path}".rstrip("/"),timeout=30)
+              if r.status_code==404: return []
               r.raise_for_status()
-              data = r.json()
-              return data if isinstance(data, list) else []
+              data=r.json()
+              return data if isinstance(data,list) else []
 
-          def fetch_json_raw(path):
-              url = f"{BASE_RAW}/{path}".lstrip("/")
-              r = S.get(url, timeout=30)
-              if r.status_code != 200: return None
+          def fetch_json(path:str)->Any:
+              r=S.get(f"{RAW}/{path}".lstrip("/"),timeout=30)
+              if r.status_code!=200: return None
               try: return r.json()
               except: return None
 
-          def safe_float(x):
+          def first(d, keys):
+              for k in keys:
+                  if isinstance(d,dict) and k in d and d[k] not in (None,""):
+                      return d[k]
+              return None
+
+          def to_float(x):
               try: return float(x)
               except: return None
 
-          def build_model_tops():
-              results_code, results_multi, results_know, results_ctx = [], [], [], []
-              orgs = [i["name"] for i in gh_list("organizations") if i.get("type") == "dir"]
+          # ---------- MODELS (code/mmmu/gpqa/context) ----------
+          def collect_models():
+              code=[]; multi=[]; know=[]; ctx=[]
+              orgs=[i["name"] for i in list_dir("organizations") if i.get("type")=="dir"]
               for org in orgs:
-                  models = [i["name"] for i in gh_list(f"organizations/{org}") if i.get("type") == "dir"]
-                  for model in models:
-                      data = fetch_json_raw(f"organizations/{org}/{model}/model.json")
-                      if not isinstance(data, dict): continue
-                      name = data.get("name") or data.get("id") or model
+                  models=[i["name"] for i in list_dir(f"organizations/{org}") if i.get("type")=="dir"]
+                  for m in models:
+                      d=fetch_json(f"organizations/{org}/{m}/model.json")
+                      if not isinstance(d,dict): continue
+                      name=d.get("name") or d.get("id") or m
+                      # différents schémas observés: d["scores"][alias] ou d["benchmarks"][alias]["score"]
+                      scores = d.get("scores",{}) or {}
+                      benches = d.get("benchmarks",{}) or {}
 
-                      scores = data.get("scores", {})
-                      aider = scores.get("aider") or scores.get("aider_polyglot") or scores.get("code") or scores.get("coding")
-                      mmmu  = scores.get("mmmu") or scores.get("multimodal") or scores.get("vision")
-                      gpqa  = scores.get("gpqa") or scores.get("knowledge")
+                      # Code
+                      v = first(scores, ALIASES["code"])
+                      if v is None and benches:
+                          for a in ALIASES["code"]:
+                              if a in benches and isinstance(benches[a],dict):
+                                  v = benches[a].get("score"); 
+                                  if v is not None: break
+                      vf = to_float(v); 
+                      if vf is not None: code.append({"name":name, "score": round(vf,1)})
 
-                      ctx = data.get("context_length") or data.get("max_context_length") or data.get("window") or data.get("context")
+                      # Multimodal
+                      v = first(scores, ALIASES["multimodal"])
+                      if v is None and benches:
+                          for a in ALIASES["multimodal"]:
+                              if a in benches and isinstance(benches[a],dict):
+                                  v = benches[a].get("score"); 
+                                  if v is not None: break
+                      vf = to_float(v); 
+                      if vf is not None: multi.append({"name":name, "score": round(vf,1)})
 
-                      if aider is not None:
-                          v = safe_float(aider)
-                          if v is not None: results_code.append({"name": name, "score": round(v, 1)})
+                      # Knowledge
+                      v = first(scores, ALIASES["knowledge"])
+                      if v is None and benches:
+                          for a in ALIASES["knowledge"]:
+                              if a in benches and isinstance(benches[a],dict):
+                                  v = benches[a].get("score"); 
+                                  if v is not None: break
+                      vf = to_float(v); 
+                      if vf is not None: know.append({"name":name, "score": round(vf,1)})
 
-                      if mmmu is not None:
-                          v = safe_float(mmmu)
-                          if v is not None: results_multi.append({"name": name, "score": round(v, 1)})
+                      # Context length
+                      ctx_raw = first(d, ALIASES["context"])
+                      vv = to_float(ctx_raw)
+                      if vv is None and ctx_raw is not None:
+                          s=str(ctx_raw).lower().replace("tokens","").strip()
+                          mul=1
+                          if "m" in s: s=s.replace("m",""); mul=1_000_000
+                          elif "k" in s: s=s.replace("k",""); mul=1_000
+                          try: vv=float(s)*mul
+                          except: vv=None
+                      if vv and vv>0: ctx.append({"name":name,"tokens":int(vv)})
 
-                      if gpqa is not None:
-                          v = safe_float(gpqa)
-                          if v is not None: results_know.append({"name": name, "score": round(v, 1)})
+                      LOG["models"].append({"model":name,"code":v if 'v' in locals() else None})
 
-                      if ctx is not None:
-                          v = safe_float(ctx)
-                          if v is None:
-                              s = str(ctx).lower().replace("tokens","").strip()
-                              mul = 1
-                              if "m" in s: s = s.replace("m",""); mul = 1_000_000
-                              elif "k" in s: s = s.replace("k",""); mul = 1_000
-                              try: v = float(s)*mul
-                              except: v = None
-                          if v and v > 0: results_ctx.append({"name": name, "context_length": int(v)})
-                  time.sleep(0.05)
+                  time.sleep(0.02)
 
-              results_code.sort(key=lambda x: x["score"], reverse=True)
-              results_multi.sort(key=lambda x: x["score"], reverse=True)
-              results_know.sort(key=lambda x: x["score"], reverse=True)
-              results_ctx.sort(key=lambda x: x["context_length"], reverse=True)
+              code.sort(key=lambda x:x["score"], reverse=True)
+              multi.sort(key=lambda x:x["score"], reverse=True)
+              know.sort(key=lambda x:x["score"], reverse=True)
+              ctx.sort(key=lambda x:x["tokens"], reverse=True)
 
-              ctx_formatted = []
-              for r in results_ctx[:5]:
-                  v = r["context_length"]
-                  if v >= 1_000_000: s = f"{v/1_000_000:.1f}M tokens"
-                  elif v >= 1_000:   s = f"{int(v/1_000)}K tokens"
-                  else:              s = f"{int(v)} tokens"
-                  ctx_formatted.append({"name": r["name"], "value": s})
+              def fmt_tokens(n):
+                  if n>=1_000_000: return f"{n/1_000_000:.1f}M tokens"
+                  if n>=1_000:     return f"{int(n/1_000)}K tokens"
+                  return f"{int(n)} tokens"
+
+              ctx_fmt=[{"name":r["name"],"value":fmt_tokens(r["tokens"])} for r in ctx[:5]]
 
               return {
-                  "code": results_code[:5],
-                  "multimodal": results_multi[:5],
-                  "knowledge": results_know[:5],
-                  "longest_context": ctx_formatted,
+                  "code": code[:5],
+                  "multimodal": multi[:5],
+                  "knowledge": know[:5],
+                  "longest_context": ctx_fmt
               }
 
-          def build_provider_tops():
-              cheap, fast = [], []
-              providers = [i["name"] for i in gh_list("providers") if i.get("type") == "dir"]
-              for prov in providers:
-                  models = fetch_json_raw(f"providers/{prov}/models.json")
-                  if not isinstance(models, list): continue
-                  best_cost = None; best_thr = None
-                  for m in models:
-                      c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
-                      c = safe_float(c)
-                      if c is not None:
-                          best_cost = min(best_cost, c) if best_cost is not None else c
-                      t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
-                      t = safe_float(t)
-                      if t is not None:
-                          best_thr = max(best_thr, t) if best_thr is not None else t
-                  if best_cost is not None: cheap.append({"name": prov, "value": f"${best_cost:.2f} / 1M tokens"})
-                  if best_thr is not None:  fast.append({"name": prov, "value": f"{int(round(best_thr))} tokens/s"})
-                  time.sleep(0.03)
+          # ---------- PROVIDERS (cost/throughput) ----------
+          def collect_providers():
+              cheap=[]; fast=[]
+              provs=[i["name"] for i in list_dir("providers") if i.get("type")=="dir"]
+              for p in provs:
+                  arr=fetch_json(f"providers/{p}/models.json")
+                  if not isinstance(arr,list): continue
+                  best_cost=None; best_thr=None
+                  for m in arr:
+                      c = first(m, ALIASES["cost"])
+                      cf = to_float(c)
+                      if cf is not None:
+                          best_cost = min(best_cost, cf) if best_cost is not None else cf
+                      t = first(m, ALIASES["throughput"])
+                      tf = to_float(t)
+                      if tf is not None:
+                          best_thr = max(best_thr, tf) if best_thr is not None else tf
+                  if best_cost is not None:
+                      cheap.append({"name":p, "value": f"${best_cost:.2f} / 1M tokens"})
+                  if best_thr is not None:
+                      fast.append({"name":p, "value": f"{int(round(best_thr))} tokens/s"})
+                  LOG["providers"].append({"provider":p,"best_cost":best_cost,"best_thr":best_thr})
+                  time.sleep(0.01)
 
               def parse_cost(v):
                   try: return float(v.split("$")[1].split("/")[0].strip())
-                  except: return float("inf")
-              cheap.sort(key=lambda x: parse_cost(x["value"]))
-              fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
+                  except: return math.inf
 
-              return { "cheapest": cheap[:5], "fastest": fast[:5] }
+              cheap.sort(key=lambda x: parse_cost(x["value"]))                  # plus petit d'abord
+              fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True) # plus grand d'abord
+              return {"cheapest": cheap[:5], "fastest": fast[:5]}
 
           def main():
-              data = {}
-              data.update(build_model_tops())
-              data.update(build_provider_tops())
-              for k in ["code","multimodal","knowledge","longest_context","cheapest","fastest"]:
-                  data.setdefault(k, [])
+              data=collect_models()
+              data.update(collect_providers())
               with open("top-leaderboards.json","w",encoding="utf-8") as f:
-                  json.dump(data, f, indent=2, ensure_ascii=False)
-              print("Wrote top-leaderboards.json")
+                  json.dump(data,f,indent=2,ensure_ascii=False)
+              with open("build-log.json","w",encoding="utf-8") as f:
+                  json.dump(LOG,f,indent=2,ensure_ascii=False)
+              print("OK: wrote top-leaderboards.json & build-log.json")
 
-          if __name__ == "__main__":
+          if __name__=="__main__":
               main()
           PY
 
-      - name: Run build
-        run: python build_top_leaderboards.py
+      - name: Run builder
+        run: python build_top.py
 
       - name: Commit & push if changed
         run: |
-          if ! git diff --quiet -- top-leaderboards.json; then
+          if ! git diff --quiet -- top-leaderboards.json build-log.json; then
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
-            git add top-leaderboards.json
-            git commit -m "chore: daily top-leaderboards.json update"
+            git add top-leaderboards.json build-log.json
+            git commit -m "chore: daily build from official repo"
             git push
           else
             echo "No changes"
