@@ -1,10 +1,134 @@
 {
-  "source": "https://llm-stats.com/",
-  "last_updated": "2025-10-04T20:48:03Z",
-  "code": [],
-  "multimodal": [],
-  "knowledge": [],
-  "longest_context": [],
-  "cheapest": [],
-  "fastest": []
+  "code": [
+    {
+      "name": "GPT-5",
+      "score": 88
+    },
+    {
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "score": 82.2
+    },
+    {
+      "name": "o3",
+      "score": 81.3
+    },
+    {
+      "name": "Gemini 2.5 Pro",
+      "score": 76.5
+    },
+    {
+      "name": "DeepSeek-V3.2-Exp",
+      "score": 74.5
+    }
+  ],
+  "multimodal": [
+    {
+      "name": "GPT-5",
+      "score": 84.2
+    },
+    {
+      "name": "o3",
+      "score": 82.9
+    },
+    {
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "score": 82
+    },
+    {
+      "name": "o4-mini",
+      "score": 81.6
+    },
+    {
+      "name": "Gemini 2.5 Flash",
+      "score": 79.7
+    }
+  ],
+  "knowledge": [
+    {
+      "name": "Grok-4 Heavy",
+      "score": 88.4
+    },
+    {
+      "name": "Grok-4",
+      "score": 87.5
+    },
+    {
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "score": 86.4
+    },
+    {
+      "name": "GPT-5",
+      "score": 85.7
+    },
+    {
+      "name": "Claude 3.7 Sonnet",
+      "score": 84.8
+    }
+  ],
+  "longest_context": [
+    {
+      "name": "Llama 4 Scout",
+      "value": "10.0M tokens"
+    },
+    {
+      "name": "Gemini 1.5 Pro",
+      "value": "2.1M tokens"
+    },
+    {
+      "name": "Gemini 1.5 Flash",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "Gemini 1.5 Flash 8B",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "Gemini 2.0 Flash",
+      "value": "1.0M tokens"
+    }
+  ],
+  "cheapest": [
+    {
+      "name": "DeepInfra",
+      "value": "$0.17 / 1M tokens"
+    },
+    {
+      "name": "Novita",
+      "value": "$0.17 / 1M tokens"
+    },
+    {
+      "name": "Lambda",
+      "value": "$0.18 / 1M tokens"
+    },
+    {
+      "name": "Groq",
+      "value": "$0.20 / 1M tokens"
+    },
+    {
+      "name": "Fireworks",
+      "value": "$0.22 / 1M tokens"
+    }
+  ],
+  "fastest": [
+    {
+      "name": "Sambanova",
+      "value": "639 tokens/s"
+    },
+    {
+      "name": "Groq",
+      "value": "307 tokens/s"
+    },
+    {
+      "name": "Together",
+      "value": "98 tokens/s"
+    },
+    {
+      "name": "Lambda",
+      "value": "94 tokens/s"
+    },
+    {
+      "name": "DeepInfra",
+      "value": "84 tokens/s"
+    }
+  ]
 }
