@@ -129,21 +129,21 @@ jobs:
                   break
 
           # provider_models/providers -> prix / débit
-          def absorb_provider_models(p, prov_name):
-            nonlocal cheap_map, fast_map
-            if isinstance(p, list):
-              min_cost = cheap_map.get(prov_name, math.inf)
-              max_tps  = fast_map.get(prov_name, 0.0)
-              for m in p:
-                if not isinstance(m, dict): continue
-                for pk in PRICE_KEYS:
-                  cf = to_float(m.get(pk))
-                  if cf is not None and cf < min_cost: min_cost = cf
-                for tk in TPS_KEYS:
-                  tf = to_float(m.get(tk))
-                  if tf is not None and tf > max_tps: max_tps = tf
-              if min_cost != math.inf: cheap_map[prov_name] = min_cost
-              if max_tps  > 0:         fast_map[prov_name]  = max_tps
+          def absorb_provider_models(arr, prov_name, cheap_map, fast_map):
+            if not isinstance(arr, list):
+              return
+            min_cost = cheap_map.get(prov_name, math.inf)
+            max_tps  = fast_map.get(prov_name, 0.0)
+            for m in arr:
+              if not isinstance(m, dict): continue
+              for pk in PRICE_KEYS:
+                cf = to_float(m.get(pk))
+                if cf is not None and cf < min_cost: min_cost = cf
+              for tk in TPS_KEYS:
+                tf = to_float(m.get(tk))
+                if tf is not None and tf > max_tps: max_tps = tf
+            if min_cost != math.inf: cheap_map[prov_name] = min_cost
+            if max_tps  > 0:         fast_map[prov_name]  = max_tps
 
           pm_dir = os.path.join(ROOT,"provider_models")
           if os.path.isdir(pm_dir):
@@ -151,7 +151,7 @@ jobs:
               if not fn.endswith(".json"): continue
               prov = os.path.splitext(fn)[0]
               arr = read_json(os.path.join(pm_dir, fn))
-              absorb_provider_models(arr, prov)
+              absorb_provider_models(arr, prov, cheap_map, fast_map)
 
           prov_dir = os.path.join(ROOT,"providers")
           if os.path.isdir(prov_dir):
@@ -159,7 +159,7 @@ jobs:
               path = os.path.join(prov_dir, prov, "models.json")
               if os.path.isfile(path):
                 arr = read_json(path)
-                absorb_provider_models(arr, prov)
+                absorb_provider_models(arr, prov, cheap_map, fast_map)
 
           # ===== PASS 2: scan global si sections vides =====
           if not code or not multi or not know or not ctx_map:
@@ -181,7 +181,6 @@ jobs:
                   if cand:
                     cand.sort(key=lambda x:x["score"], reverse=True)
                     base = (os.path.basename(root)+"/"+fn).lower()
-                    # heuristiques par nom de fichier/chemin
                     if not code and CODE_PAT.search(base):        code = cand[:5]
                     if not multi and MULTI_PAT.search(base):      multi = cand[:5]
                     if not know and KNOW_PAT.search(base):        know = cand[:5]
@@ -202,51 +201,50 @@ jobs:
                       if v and v>0: ctx_map[name]=int(v)
                       break
 
-          # ===== PASS 3: fallback README (MMMU/GPQA) + HumanEval pour code
+          # ===== PASS 3: fallback README (si nécessaire)
           if (not multi or not know) or not code:
-            readme = open("upstream/README.md","r",encoding="utf-8",errors="ignore").read()
-            # repérer le bloc "Leaderboard"
-            m = re.search(r"##\\s*Leaderboard(.+?)(?:\\n##|\\Z)", readme, re.S|re.I)
-            if m:
-              block = m.group(1)
-              # lignes avec au moins GPQA/MMMU
-              rows = [l.strip() for l in block.splitlines() if l.strip() and not l.strip().startswith("#")]
-              parsed=[]
-              for l in rows:
-                # essaye d'extraire: name ... GPQA ... MMMU ...
-                # capture nom (début de ligne jusqu'à 2 espaces consécutifs), puis flotants
-                g=re.findall(r"([A-Za-z0-9\\.\\-\\s\\+]+?)\\s+(?:\\S+\\s+){2,}([01]\\.\\d{3})\\s+(?:\\d{1}\\.\\d{3})?\\s*(?:\\S+\\s+){0,3}([01]\\.\\d{3})", l)
-                # si pas fiable, autre pattern (GPQA puis MMMU ailleurs)
-                if not g:
+            try:
+              readme = open("upstream/README.md","r",encoding="utf-8",errors="ignore").read()
+            except Exception:
+              readme = ""
+            if readme:
+              m = re.search(r"##\\s*Leaderboard(.+?)(?:\\n##|\\Z)", readme, re.S|re.I)
+              if m:
+                block = m.group(1)
+                rows = [l.strip() for l in block.splitlines() if l.strip() and not l.strip().startswith("#")]
+                parsed=[]
+                for l in rows:
                   g=re.findall(r"^(.+?)\\s+.*?(0\\.\\d{3}|1\\.\\d{3}).*?(0\\.\\d{3}|1\\.\\d{3}).*$", l)
-                if g:
-                  name=g[0][0].strip()
-                  nums=[x for x in g[0][1:] if re.match(r"^[01]\\.\\d{3}$", x)]
-                  if len(nums)>=2:
-                    gpqa=normalize_score(nums[0]); mmmu=normalize_score(nums[1])
-                    parsed.append((name,gpqa,mmmu))
-              if parsed:
-                if not know:
-                  know = [{"name":n,"score":s1} for (n,s1,_) in sorted(parsed, key=lambda x:x[1], reverse=True)[:5]]
-                if not multi:
-                  multi = [{"name":n,"score":s2} for (n,_,s2) in sorted(parsed, key=lambda x:x[2], reverse=True)[:5]]
-                if not code:
-                  # fallback code ~ HumanEval si présent dans README (3ème nombre parfois)
-                  he=[]
-                  for l in rows:
-                    h=re.findall(r"^(.+?)\\s+.*?([01]\\.\\d{3}).*?([01]\\.\\d{3}).*?([01]\\.\\d{3}).*?$", l)
-                    if h:
-                      name=h[0][0].strip()
-                      # 3ème nb utilisé comme proxy "code"
-                      val=normalize_score(h[0][3])
-                      if val is not None: he.append({"name":name,"score":val})
-                  he.sort(key=lambda x:x["score"], reverse=True)
-                  code = he[:5] if he else code
+                  if g:
+                    name=g[0][0].strip()
+                    nums=[x for x in g[0][1:] if re.match(r"^[01]\\.\\d{3}$", x)]
+                    if len(nums)>=2:
+                      gpqa=normalize_score(nums[0]); mmmu=normalize_score(nums[1])
+                      parsed.append((name,gpqa,mmmu))
+                if parsed:
+                  if not know:
+                    know = [{"name":n,"score":s1} for (n,s1,_) in sorted(parsed, key=lambda x:x[1], reverse=True)[:5]]
+                  if not multi:
+                    multi = [{"name":n,"score":s2} for (n,_,s2) in sorted(parsed, key=lambda x:x[2], reverse=True)[:5]]
+                  if not code:
+                    # heuristique: 3ème nombre comme proxy "code" si dispo
+                    he=[]
+                    for l in rows:
+                      h=re.findall(r"^(.+?)\\s+.*?([01]\\.\\d{3}).*?([01]\\.\\d{3}).*?([01]\\.\\d{3}).*?$", l)
+                      if h:
+                        name=h[0][0].strip()
+                        val=normalize_score(h[0][3])
+                        if val is not None: he.append({"name":name,"score":val})
+                    he.sort(key=lambda x:x["score"], reverse=True)
+                    code = he[:5] if he else code
 
           # -------- assemble --------
           ctx_list = [{"name":k, "value": fmt_tokens(v)} for k,v in sorted(ctx_map.items(), key=lambda kv: kv[1], reverse=True)[:5]]
           cheapest = [{"name":k, "value": f"${v:.2f} / 1M tokens"} for k,v in cheap_map.items()]
-          cheapest.sort(key=lambda x: float(x["value"].split("$")[1].split("/")[0]) if "$" in x["value"] else math.inf)
+          def cost_val(it):
+            try: return float(it["value"].split("$")[1].split("/")[0])
+            except Exception: return math.inf
+          cheapest.sort(key=cost_val)
           cheapest = cheapest[:5]
           fastest  = [{"name":k, "value": f"{int(round(v))} tokens/s"} for k,v in fast_map.items()]
           fastest.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
