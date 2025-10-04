@@ -1,7 +1,8 @@
 {
   "table": [
     {
-      "organization": "",
+      "organization": "xai system logo",
+      "organization_logo": "https://llm-stats.com/logos/xai.svg",
       "model": "Grok-4 Heavy",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -13,7 +14,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "xai system logo",
+      "organization_logo": "https://llm-stats.com/logos/xai.svg",
       "model": "Grok-4",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -25,7 +27,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "google system logo",
+      "organization_logo": "https://llm-stats.com/logos/google.svg",
       "model": "Gemini 2.5 Pro Preview 06-05",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -37,7 +40,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "GPT-5",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -49,7 +53,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "anthropic system logo",
+      "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude 3.7 Sonnet",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -61,7 +66,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "xai system logo",
+      "organization_logo": "https://llm-stats.com/logos/xai.svg",
       "model": "Grok-3",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -73,7 +79,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "xai system logo",
+      "organization_logo": "https://llm-stats.com/logos/xai.svg",
       "model": "Grok-3 Mini",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -85,7 +92,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "anthropic system logo",
+      "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude Sonnet 4.5\nNEW",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -97,7 +105,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "o3",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -109,7 +118,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "google system logo",
+      "organization_logo": "https://llm-stats.com/logos/google.svg",
       "model": "Gemini 2.5 Pro",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -121,7 +131,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "google system logo",
+      "organization_logo": "https://llm-stats.com/logos/google.svg",
       "model": "Gemini 2.5 Flash",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -133,7 +144,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "GPT-5 mini",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -145,7 +157,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "o4-mini",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -157,7 +170,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "qwen system logo",
+      "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fqwen.png&w=32&q=75",
       "model": "Qwen3-235B-A22B-Thinking-2507",
       "license": "Open",
       "parameters_b": "235",
@@ -169,7 +183,8 @@
       "mmlu_pro": "84.4%"
     },
     {
-      "organization": "",
+      "organization": "deepseek system logo",
+      "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fdeepseek.webp&w=32&q=75",
       "model": "DeepSeek-R1-0528",
       "license": "Open",
       "parameters_b": "671",
@@ -181,7 +196,8 @@
       "mmlu_pro": "85.0%"
     },
     {
-      "organization": "",
+      "organization": "zai-org system logo",
+      "organization_logo": "https://llm-stats.com/logos/zai-org.svg",
       "model": "GLM-4.6\nNEW",
       "license": "Open",
       "parameters_b": "357",
@@ -193,7 +209,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "anthropic system logo",
+      "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude Opus 4.1",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -205,7 +222,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "GPT OSS 120B",
       "license": "Open",
       "parameters_b": "116.8",
@@ -217,7 +235,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "deepseek system logo",
+      "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fdeepseek.webp&w=32&q=75",
       "model": "DeepSeek-V3.2-Exp\nNEW",
       "license": "Open",
       "parameters_b": "685",
@@ -229,7 +248,8 @@
       "mmlu_pro": "85.0%"
     },
     {
-      "organization": "",
+      "organization": "anthropic system logo",
+      "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude Opus 4",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -241,7 +261,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "zai-org system logo",
+      "organization_logo": "https://llm-stats.com/logos/zai-org.svg",
       "model": "GLM-4.5",
       "license": "Open",
       "parameters_b": "355",
@@ -253,7 +274,8 @@
       "mmlu_pro": "84.6%"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "o1-pro",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -265,7 +287,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "o1",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -277,7 +300,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "qwen system logo",
+      "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fqwen.png&w=32&q=75",
       "model": "Qwen3-235B-A22B-Instruct-2507",
       "license": "Open",
       "parameters_b": "235",
@@ -289,7 +313,8 @@
       "mmlu_pro": "83.0%"
     },
     {
-      "organization": "",
+      "organization": "openai system logo",
+      "organization_logo": "https://llm-stats.com/logos/openai.svg",
       "model": "o3-mini",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -301,7 +326,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "qwen system logo",
+      "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fqwen.png&w=32&q=75",
       "model": "Qwen3-Next-80B-A3B-Thinking",
       "license": "Open",
       "parameters_b": "80",
@@ -313,7 +339,8 @@
       "mmlu_pro": "82.7%"
     },
     {
-      "organization": "",
+      "organization": "nvidia system logo",
+      "organization_logo": "https://llm-stats.com/logos/nvidia.svg",
       "model": "Llama 3.1 Nemotron Ultra 253B v1",
       "license": "Open",
       "parameters_b": "253",
@@ -325,7 +352,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "moonshotai system logo",
+      "organization_logo": "https://llm-stats.com/logos/moonshotai.svg",
       "model": "Kimi K2 0905",
       "license": "Proprietary",
       "parameters_b": "1000",
@@ -337,7 +365,8 @@
       "mmlu_pro": "82.5%"
     },
     {
-      "organization": "",
+      "organization": "anthropic system logo",
+      "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude Sonnet 4",
       "license": "Proprietary",
       "parameters_b": "-",
@@ -349,7 +378,8 @@
       "mmlu_pro": "-"
     },
     {
-      "organization": "",
+      "organization": "moonshotai system logo",
+      "organization_logo": "https://llm-stats.com/logos/moonshotai.svg",
       "model": "Kimi K2 Instruct",
       "license": "Open",
       "parameters_b": "1000",
