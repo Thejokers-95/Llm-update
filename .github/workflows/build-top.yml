@@ -37,12 +37,11 @@ jobs:
           RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
 
           S=requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/4.0"})
+          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/4.3"})
           tok=os.getenv("GITHUB_TOKEN")
           if tok: S.headers["Authorization"]=f"Bearer {tok}"
 
           def _get(url, timeout=30, tries=4, backoff=0.6):
-              err=None
               for i in range(tries):
                   try:
                       r=S.get(url, timeout=timeout)
@@ -50,9 +49,8 @@ jobs:
                       if r.status_code in (429,403):
                           time.sleep(backoff*(2**i)+random.random()*0.2); continue
                       if r.status_code==404: return None
-                      err=r
-                  except Exception as e:
-                      err=e
+                  except Exception:
+                      pass
                   time.sleep(backoff*(i+1))
               return None
 
@@ -75,6 +73,7 @@ jobs:
               except: return None
 
           def normalize_score(v):
+              # 0.884 -> 88.4 ; 88.4 reste 88.4
               f = to_float(v)
               if f is None: return None
               if f <= 1.0: f *= 100.0
@@ -83,7 +82,7 @@ jobs:
           # ---------- Providers (prix & débit)
           def collect_providers():
               cheap, fast = [], []
-              # 1) provider_models/*.json
+              # 1) provider_models/*.json (préféré)
               for f in list_dir("provider_models"):
                   if f.get("type")!="file" or not f["name"].endswith(".json"): continue
                   prov = f["name"].removesuffix(".json")
@@ -121,13 +120,84 @@ jobs:
               fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
               return {"cheapest": cheap[:5], "fastest": fast[:5]}
 
-          # ---------- Benchmarks modèles (code / multimodal / knowledge)
-          def load_top_from_model_benchmarks():
+          # ---------- Benchmarks (code/multimodal/knowledge) depuis data/models/*.json
+          CODE_KEYS       = ["aider_polyglot","aider","code","coding","polyglot"]
+          MULTI_KEYS      = ["mmmu","multimodal","vision"]
+          KNOWLEDGE_KEYS  = ["gpqa","gpqa_diamond","knowledge"]
+
+          def pull_score(d:Dict[str,Any], keys:List[str]):
+              # 1) d["scores"][key]
+              scores = d.get("scores") or {}
+              for k in keys:
+                  if isinstance(scores, dict) and k in scores:
+                      s = normalize_score(scores[k])
+                      if s is not None: return s
+              # 2) d["benchmarks"][key] -> {score: x} | x
+              benches = d.get("benchmarks") or {}
+              for k in keys:
+                  b = benches.get(k)
+                  if isinstance(b, dict) and "score" in b:
+                      s = normalize_score(b["score"])
+                      if s is not None: return s
+                  elif b is not None:
+                      s = normalize_score(b)
+                      if s is not None: return s
+              return None
+
+          def collect_models_primary():
+              code=[]; multi=[]; know=[]; ctx=[]
+              for f in list_dir("models"):
+                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
+                  d = fetch_json(f"models/{f['name']}")
+                  if not isinstance(d, dict): continue
+                  name = d.get("name") or d.get("id") or f["name"].removesuffix(".json")
+
+                  sc = pull_score(d, CODE_KEYS)
+                  sm = pull_score(d, MULTI_KEYS)
+                  sk = pull_score(d, KNOWLEDGE_KEYS)
+                  if sc is not None: code.append({"name":name,"score":sc})
+                  if sm is not None: multi.append({"name":name,"score":sm})
+                  if sk is not None: know.append({"name":name,"score":sk})
+
+                  # contexte
+                  c = d.get("context_length") or d.get("max_context_length") or d.get("input_context") or d.get("context") or d.get("window")
+                  v = to_float(c)
+                  if v is None and c is not None:
+                      s=str(c).lower().replace("tokens","").strip(); mul=1
+                      if "m" in s: s=s.replace("m",""); mul=1_000_000
+                      elif "k" in s: s=s.replace("k",""); mul=1_000
+                      try: v=float(s)*mul
+                      except: v=None
+                  if v and v>0: ctx.append({"name":name,"_tokens":int(v)})
+
+                  time.sleep(0.01)
+
+              code.sort(key=lambda x:x["score"], reverse=True)
+              multi.sort(key=lambda x:x["score"], reverse=True)
+              know.sort(key=lambda x:x["score"], reverse=True)
+              ctx.sort(key=lambda x:x["_tokens"], reverse=True)
+
+              def fmt(n):
+                  if n>=1_000_000: return f"{n/1_000_000:.1f}M tokens"
+                  if n>=1000:     return f"{int(n/1000)}K tokens"
+                  return f"{int(n)} tokens"
+
+              ctx_fmt=[{"name":r["name"],"value":fmt(r["_tokens"])} for r in ctx[:5]]
+
+              return {
+                  "code": code[:5],
+                  "multimodal": multi[:5],
+                  "knowledge": know[:5],
+                  "longest_context": ctx_fmt
+              }
+
+          # ---------- Fallback: data/model_benchmarks/*.json si une section est vide
+          def collect_models_fallback(current):
               files = list_dir("model_benchmarks")
               names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
 
-              def load_first(match_regex):
-                  pat = re.compile(match_regex, re.I)
+              def load_top(regex):
+                  pat = re.compile(regex, re.I)
                   cand = next((n for n in names if pat.search(n)), None)
                   if not cand: return []
                   js = fetch_json(f"model_benchmarks/{cand}")
@@ -144,44 +214,17 @@ jobs:
                   items.sort(key=lambda x:x["score"], reverse=True)
                   return items[:5]
 
-              return {
-                  "code":       load_first(r"(aider|polyglot|code)"),
-                  "multimodal": load_first(r"(mmmu|multimodal|vision)"),
-                  "knowledge":  load_first(r"(gpqa|knowledge)")
-              }
-
-          # ---------- Longest context (depuis data/models/*.json)
-          def collect_longest_context():
-              arr=[]
-              for f in list_dir("models"):
-                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
-                  d = fetch_json(f"models/{f['name']}")
-                  if not isinstance(d, dict): continue
-                  name = d.get("name") or d.get("id") or f["name"].removesuffix(".json")
-                  ctx  = d.get("context_length") or d.get("max_context_length") or d.get("input_context") or d.get("context") or d.get("window")
-                  v = to_float(ctx)
-                  if v is None and ctx is not None:
-                      s=str(ctx).lower().replace("tokens","").strip()
-                      mul=1
-                      if "m" in s: s=s.replace("m",""); mul=1_000_000
-                      elif "k" in s: s=s.replace("k",""); mul=1_000
-                      try: v=float(s)*mul
-                      except: v=None
-                  if v and v>0: arr.append({"name":name,"_tokens":int(v)})
-
-              arr.sort(key=lambda x:x["_tokens"], reverse=True)
-              out=[]
-              for r in arr[:5]:
-                  n=r["_tokens"]
-                  if n>=1_000_000: val=f"{n/1_000_000:.1f}M tokens"
-                  elif n>=1000:    val=f"{int(n/1000)}K tokens"
-                  else:            val=f"{int(n)} tokens"
-                  out.append({"name":r["name"], "value": val})
-              return out
+              if not current.get("code"):
+                  current["code"] = load_top(r"(aider|polyglot|code)")
+              if not current.get("multimodal"):
+                  current["multimodal"] = load_top(r"(mmmu|multimodal|vision)")
+              if not current.get("knowledge"):
+                  current["knowledge"] = load_top(r"(gpqa|knowledge)")
+              return current
 
           def main():
-              top = load_top_from_model_benchmarks()
-              top["longest_context"] = collect_longest_context()
+              top = collect_models_primary()
+              top = collect_models_fallback(top)
               top.update(collect_providers())
 
               counts = {k: (len(v) if isinstance(v,list) else 0) for k,v in top.items()}
@@ -190,13 +233,12 @@ jobs:
               with open("top-leaderboards.json","w",encoding="utf-8") as f:
                   json.dump(top, f, indent=2, ensure_ascii=False)
 
-              # log détaillé (et timestamp pour commit)
               log = {
                 "generated_at_utc": datetime.datetime.utcnow().isoformat()+"Z",
                 "section_counts": counts
               }
               with open("build-log.json","w",encoding="utf-8") as f:
-                  json.dump(log, f, indent=2, ensure_ascii=False)
+                json.dump(log, f, indent=2, ensure_ascii=False)
 
               print("OK: wrote top-leaderboards.json & build-log.json")
               print("\\n===== top-leaderboards.json (preview) =====")
