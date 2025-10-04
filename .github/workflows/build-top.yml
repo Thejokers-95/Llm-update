@@ -5,12 +5,18 @@ on:
   schedule:
     - cron: "23 6 * * *"   # tous les jours 06:23 UTC
 
+permissions:
+  contents: write   # <-- important
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true  # utilise GITHUB_TOKEN pour pousser
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,10 +37,12 @@ jobs:
       - name: Commit & push if changed
         run: |
           if [ -n "$(git status --porcelain)" ]; then
-            git config user.name "github-actions[bot]"
+            git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add top-leaderboards.json build-log.json
             git commit -m "chore: daily top-leaderboards.json update"
+            # s'assurer qu'on est à jour avant de pousser
+            git pull --rebase
             git push
           else
             echo "No changes to commit."
