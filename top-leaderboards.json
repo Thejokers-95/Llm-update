@@ -1,82 +1,10 @@
 {
-  "code": [
-    {
-      "name": "5",
-      "score": 65
-    }
-  ],
-  "multimodal": [
-    {
-      "name": "5",
-      "score": 65
-    }
-  ],
-  "knowledge": [
-    {
-      "name": "5",
-      "score": 65
-    }
-  ],
-  "longest_context": [
-    {
-      "name": "1",
-      "value": "10.0M tokens"
-    },
-    {
-      "name": "2",
-      "value": "2.1M tokens"
-    },
-    {
-      "name": "3",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "4",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "5",
-      "value": "1.0M tokens"
-    }
-  ],
-  "cheapest": [
-    {
-      "name": "1",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "2",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "3",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "4",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "5",
-      "value": "1.0M tokens"
-    }
-  ],
-  "fastest": [
-    {
-      "name": "1",
-      "value": "639 tokens/s"
-    },
-    {
-      "name": "2",
-      "value": "307 tokens/s"
-    },
-    {
-      "name": "3",
-      "value": "98 tokens/s"
-    },
-    {
-      "name": "4",
-      "value": "94 tokens/s"
-    }
-  ]
+  "source": "https://llm-stats.com/",
+  "last_updated": "2025-10-04T20:48:03Z",
+  "code": [],
+  "multimodal": [],
+  "knowledge": [],
+  "longest_context": [],
+  "cheapest": [],
+  "fastest": []
 }
