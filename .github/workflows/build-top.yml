@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build top-leaderboards.json (recursive scan of upstream/data)
+      - name: Build top-leaderboards.json (recursive scan + model_benchmarks support)
         run: |
           python - << 'PY'
           import os, json, math, re, datetime
@@ -37,34 +37,25 @@ jobs:
 
           # -------------------- helpers --------------------
           def to_float(x):
-              try:
-                  return float(x)
-              except Exception:
-                  return None
+              try: return float(x)
+              except Exception: return None
 
           def normalize_score(v):
               f = to_float(v)
-              if f is None:
-                  return None
-              # les repos stockent parfois 0.884 => 88.4
-              if f <= 1.0:
-                  f *= 100.0
+              if f is None: return None
+              if f <= 1.0: f *= 100.0   # 0.884 -> 88.4
               return round(f, 1)
 
           def parse_tokens_value(n):
-              """formate 1000000 -> 1.0M tokens, 10000 -> 10K tokens, etc."""
-              if n >= 1_000_000:
-                  return f"{n/1_000_000:.1f}M tokens"
-              if n >= 1_000:
-                  return f"{int(n/1000)}K tokens"
+              if n >= 1_000_000: return f"{n/1_000_000:.1f}M tokens"
+              if n >= 1_000:     return f"{int(n/1000)}K tokens"
               return f"{int(n)} tokens"
 
-          # Détection flexible des champs prix/débit
           PRICE_KEYS = [
-              "input_cost_per_million", "input_cost", "price_per_million",
-              "price_per_1m_input_tokens", "input_cost_per_1m", "price_per_million_tokens"
+              "input_cost_per_million","input_cost","price_per_million",
+              "price_per_1m_input_tokens","input_cost_per_1m","price_per_million_tokens"
           ]
-          TPS_KEYS = ["tokens_per_second", "throughput", "tps", "speed_tokens_per_second"]
+          TPS_KEYS   = ["tokens_per_second","throughput","tps","speed_tokens_per_second"]
 
           CODE_KEYS       = ["aider_polyglot","aider","code","coding","polyglot"]
           MULTI_KEYS      = ["mmmu","multimodal","vision"]
@@ -72,36 +63,33 @@ jobs:
           CTX_KEYS        = ["context_length","max_context_length","input_context","context","window"]
 
           def best_of(dct, keys):
-              # d["scores"][key]
               scores = dct.get("scores") or {}
               if isinstance(scores, dict):
                   for k in keys:
                       if k in scores:
                           s = normalize_score(scores[k])
-                          if s is not None:
-                              return s
-              # d["benchmarks"][key] -> dict(score=...) OU valeur
+                          if s is not None: return s
               benches = dct.get("benchmarks") or {}
               if isinstance(benches, dict):
                   for k in keys:
                       b = benches.get(k)
                       if isinstance(b, dict) and "score" in b:
                           s = normalize_score(b["score"])
-                          if s is not None:
-                              return s
+                          if s is not None: return s
                       elif b is not None:
                           s = normalize_score(b)
-                          if s is not None:
-                              return s
+                          if s is not None: return s
               return None
 
           # -------------------- accumulators --------------------
-          code_best   = {}   # model -> score
-          multi_best  = {}
-          know_best   = {}
-          ctx_best    = {}   # model -> tokens
-          cheap_best  = {}   # provider -> min_cost
-          fast_best   = {}   # provider -> max_tps
+          code_best, multi_best, know_best, ctx_best = {}, {}, {}, {}
+          cheap_best, fast_best = {}, {}
+
+          # helpers pour pousser un score si meilleur
+          def push_best(map_, name, score):
+              if score is None: return
+              if name not in map_ or score > map_[name]:
+                  map_[name] = score
 
           # -------------------- scan all JSON --------------------
           for root, _, files in os.walk(ROOT):
@@ -109,131 +97,128 @@ jobs:
                   if not fn.endswith(".json"): 
                       continue
                   path = os.path.join(root, fn)
+                  rel  = path.replace("\\","/")
+
+                  # --- 1) cas spéciaux: model_benchmarks/*.json (LISTES!)
+                  if "/model_benchmarks/" in rel:
+                      try:
+                          js = json.load(open(path,"r",encoding="utf-8"))
+                      except Exception:
+                          continue
+                      if not isinstance(js, (list,dict)): 
+                          continue
+
+                      # Détection par nom de fichier
+                      low = fn.lower()
+                      bucket = None
+                      if re.search(r"aider|polyglot|code", low): bucket = "code"
+                      elif re.search(r"mmmu|multimodal|vision", low): bucket = "multimodal"
+                      elif re.search(r"gpqa", low): bucket = "knowledge"
+
+                      if not bucket:
+                          continue
+
+                      items=[]
+                      if isinstance(js, list):
+                          for it in js:
+                              if not isinstance(it, dict): continue
+                              nm = it.get("name") or it.get("model") or it.get("id")
+                              sc = normalize_score(it.get("score") or it.get("value"))
+                              if nm and sc is not None:
+                                  items.append((nm, sc))
+                      elif isinstance(js, dict):
+                          for nm, sc in js.items():
+                              sc = normalize_score(sc)
+                              if sc is not None:
+                                  items.append((nm, sc))
+
+                      for nm, sc in items:
+                          if bucket == "code":        push_best(code_best,  nm, sc)
+                          elif bucket == "multimodal":push_best(multi_best, nm, sc)
+                          elif bucket == "knowledge": push_best(know_best,  nm, sc)
+                      continue
+
+                  # --- 2) providers: listes de modèles avec prix / tps
                   try:
                       data = json.load(open(path, "r", encoding="utf-8"))
                   except Exception:
                       continue
 
-                  # -------- providers: list of models with pricing / tps
                   if isinstance(data, list):
-                      # deviner provider par le chemin (provider_models/xxx.json ou providers/xxx/models.json)
+                      # deviner provider par chemin
                       prov = None
-                      parts = path.replace("\\","/").split("/")
+                      parts = rel.split("/")
                       if "provider_models" in parts:
-                          try:
-                              prov = os.path.splitext(parts[parts.index("provider_models")+1])[0]
-                          except Exception:
-                              prov = None
+                          try: prov = os.path.splitext(parts[parts.index("provider_models")+1])[0]
+                          except Exception: prov = None
                       elif "providers" in parts:
-                          try:
-                              prov = parts[parts.index("providers")+1]
-                          except Exception:
-                              prov = None
+                          try: prov = parts[parts.index("providers")+1]
+                          except Exception: prov = None
 
                       if prov:
                           min_cost = cheap_best.get(prov, math.inf)
                           max_tps  = fast_best.get(prov, 0.0)
                           for m in data:
-                              if not isinstance(m, dict): 
-                                  continue
-                              # prix
+                              if not isinstance(m, dict): continue
                               for pk in PRICE_KEYS:
-                                  v = m.get(pk)
-                                  f = to_float(v)
-                                  if f is not None:
-                                      if f < min_cost:
-                                          min_cost = f
-                              # débit
+                                  cf = to_float(m.get(pk))
+                                  if cf is not None and cf < min_cost:
+                                      min_cost = cf
                               for tk in TPS_KEYS:
-                                  v = m.get(tk)
-                                  f = to_float(v)
-                                  if f is not None:
-                                      if f > max_tps:
-                                          max_tps = f
-                          if min_cost != math.inf:
-                              cheap_best[prov] = min_cost
-                          if max_tps > 0:
-                              fast_best[prov] = max_tps
-
-                      # on continue pour ne pas interpréter la liste comme "models"
+                                  tf = to_float(m.get(tk))
+                                  if tf is not None and tf > max_tps:
+                                      max_tps = tf
+                          if min_cost != math.inf: cheap_best[prov] = min_cost
+                          if max_tps  > 0:         fast_best[prov]  = max_tps
                       continue
 
-                  # -------- models-ish: dicts avec scores/benchmarks/context/etc.
+                  # --- 3) models-ish: dicts avec scores/benchmarks/context
                   if isinstance(data, dict):
                       name = (data.get("name") or data.get("model") or data.get("id") 
                               or os.path.splitext(os.path.basename(path))[0])
 
-                      sc = best_of(data, CODE_KEYS)
-                      if sc is not None:
-                          if name not in code_best or sc > code_best[name]:
-                              code_best[name] = sc
+                      push_best(code_best,  name, best_of(data, CODE_KEYS))
+                      push_best(multi_best, name, best_of(data, MULTI_KEYS))
+                      push_best(know_best,  name, best_of(data, KNOWLEDGE_KEYS))
 
-                      sm = best_of(data, MULTI_KEYS)
-                      if sm is not None:
-                          if name not in multi_best or sm > multi_best[name]:
-                              multi_best[name] = sm
-
-                      sk = best_of(data, KNOWLEDGE_KEYS)
-                      if sk is not None:
-                          if name not in know_best or sk > know_best[name]:
-                              know_best[name] = sk
-
-                      # contexte (prend le max trouvé)
+                      # contexte
                       ctx_val = None
                       for ck in CTX_KEYS:
                           if ck in data and data[ck] not in (None, ""):
-                              ctx_val = data[ck]
-                              break
+                              ctx_val = data[ck]; break
                       if ctx_val is not None:
                           v = to_float(ctx_val)
                           if v is None:
                               s = str(ctx_val).lower().replace("tokens","").strip()
                               mul = 1
-                              if "m" in s:
-                                  s = s.replace("m",""); mul = 1_000_000
-                              elif "k" in s:
-                                  s = s.replace("k",""); mul = 1_000
-                              try:
-                                  v = float(s)*mul
-                              except Exception:
-                                  v = None
+                              if "m" in s: s=s.replace("m",""); mul = 1_000_000
+                              elif "k" in s: s=s.replace("k",""); mul = 1_000
+                              try: v = float(s)*mul
+                              except Exception: v = None
                           if v and v > 0:
-                              prev = ctx_best.get(name, 0)
-                              if v > prev:
+                              if name not in ctx_best or v > ctx_best[name]:
                                   ctx_best[name] = int(v)
 
           # -------------------- build final tops --------------------
-          def top_from_map(dct, by="score", limit=5, value_fmt=None):
-              items = []
-              if by == "score":
-                  items = [{"name":k, "score":v} for k,v in dct.items() if v is not None]
+          def top_from_map(dct, score=True, limit=5):
+              if score:
+                  items = [{"name":k,"score":v} for k,v in dct.items() if v is not None]
                   items.sort(key=lambda x:x["score"], reverse=True)
-              elif by == "value":
-                  items = [{"name":k, "value": value_fmt(v) if value_fmt else v} for k,v in dct.items() if v is not None]
-                  # pour cheapest on trie par coût croissant, pour fastest c'est traité ailleurs
+              else:
+                  items = [{"name":k,"value":v} for k,v in dct.items() if v is not None]
               return items[:limit]
 
-          code_list  = top_from_map(code_best,  by="score", limit=5)
-          multi_list = top_from_map(multi_best, by="score", limit=5)
-          know_list  = top_from_map(know_best,  by="score", limit=5)
+          code_list  = top_from_map(code_best,  True)
+          multi_list = top_from_map(multi_best, True)
+          know_list  = top_from_map(know_best,  True)
 
-          # longest context
-          ctx_items = [{"name":k, "value": parse_tokens_value(v)} for k, v in ctx_best.items()]
-          ctx_items.sort(key=lambda x: (
-              10**9 if x["value"].endswith("M tokens") else
-              (10**6 if x["value"].endswith("K tokens") else 0),
-              x["value"]), reverse=True)  # tri grossier, on va plutôt re-trier par nombre
-          # meilleur tri par nombre:
-          ctx_items = [{"name":k, "value": parse_tokens_value(v)} for k, v in sorted(ctx_best.items(), key=lambda kv: kv[1], reverse=True)]
-          ctx_list = ctx_items[:5]
+          ctx_items = sorted(ctx_best.items(), key=lambda kv: kv[1], reverse=True)
+          longest_context = [{"name":k, "value": parse_tokens_value(v)} for k,v in ctx_items[:5]]
 
-          # cheapest / fastest
           cheapest_items = [{"name":k, "value": f"${v:.2f} / 1M tokens"} for k,v in cheap_best.items()]
-          def cost_val(x):
-              try:
-                  return float(x["value"].split("$")[1].split("/")[0])
-              except Exception:
-                  return math.inf
+          def cost_val(it):
+              try: return float(it["value"].split("$")[1].split("/")[0])
+              except Exception: return math.inf
           cheapest_items.sort(key=cost_val)
           cheapest_list = cheapest_items[:5]
 
@@ -245,7 +230,7 @@ jobs:
               "code": code_list,
               "multimodal": multi_list,
               "knowledge": know_list,
-              "longest_context": ctx_list,
+              "longest_context": longest_context,
               "cheapest": cheapest_list,
               "fastest": fastest_list
           }
@@ -274,7 +259,7 @@ jobs:
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
             git add top-leaderboards.json build-log.json
-            git commit -m "chore: build from official repo (recursive scan)"
+            git commit -m "chore: build from official repo (recursive scan + model_benchmarks)"
             git push
           else
             echo "No changes to files"
