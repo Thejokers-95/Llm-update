@@ -12,7 +12,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # Donné automatiquement par GitHub Actions → augmente largement les quotas API
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -27,10 +26,10 @@ jobs:
       - name: Install deps
         run: python -m pip install requests
 
-      - name: Write builder (robust + token + retries)
+      - name: Write builder (models + model_benchmarks + provider_models)
         run: |
           cat > build_top.py << 'PY'
-          import os, json, time, math, requests, re, sys, random
+          import os, json, time, math, requests, re, sys, random, datetime
           from typing import Any, Dict, List
 
           OWNER="JonathanChavezTamales"; REPO="llm-leaderboard"
@@ -38,8 +37,7 @@ jobs:
           RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
 
           S=requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json",
-                            "User-Agent":"llm-top-builder/3.0"})
+          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/4.0"})
           tok=os.getenv("GITHUB_TOKEN")
           if tok: S.headers["Authorization"]=f"Bearer {tok}"
 
@@ -49,20 +47,13 @@ jobs:
                   try:
                       r=S.get(url, timeout=timeout)
                       if r.status_code==200: return r
-                      if r.status_code in (429, 403):  # rate limit
-                          sleep=backoff*(2**i)+random.random()*0.2
-                          time.sleep(sleep); continue
-                      # 404 possible sur certains dossiers: retour None
+                      if r.status_code in (429,403):
+                          time.sleep(backoff*(2**i)+random.random()*0.2); continue
                       if r.status_code==404: return None
                       err=r
                   except Exception as e:
                       err=e
                   time.sleep(backoff*(i+1))
-              if err is None: return None
-              if isinstance(err, requests.Response):
-                  print(f"GET {url} -> HTTP {err.status_code}", file=sys.stderr)
-              else:
-                  print(f"GET {url} -> {err}", file=sys.stderr)
               return None
 
           def list_dir(path:str):
@@ -84,17 +75,19 @@ jobs:
               except: return None
 
           def normalize_score(v):
-              # 0.884 -> 88.4 ; 88.4 reste 88.4
               f = to_float(v)
               if f is None: return None
               if f <= 1.0: f *= 100.0
               return round(f, 1)
 
-          # -------- providers (prix / débit) ----------
+          # ---------- Providers (prix & débit)
           def collect_providers():
               cheap, fast = [], []
-              for p in [i["name"] for i in list_dir("providers") if i.get("type")=="dir"]:
-                  arr = fetch_json(f"providers/{p}/models.json")
+              # 1) provider_models/*.json
+              for f in list_dir("provider_models"):
+                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
+                  prov = f["name"].removesuffix(".json")
+                  arr = fetch_json(f"provider_models/{f['name']}")
                   if not isinstance(arr, list): continue
                   best_cost, best_thr = None, None
                   for m in arr:
@@ -103,8 +96,24 @@ jobs:
                       cf, tf = to_float(c), to_float(t)
                       if cf is not None: best_cost = cf if best_cost is None else min(best_cost, cf)
                       if tf is not None: best_thr  = tf if best_thr  is None else max(best_thr,  tf)
-                  if best_cost is not None: cheap.append({"name":p, "value": f"${best_cost:.2f} / 1M tokens"})
-                  if best_thr  is not None: fast.append ({"name":p, "value": f"{int(round(best_thr))} tokens/s"})
+                  if best_cost is not None: cheap.append({"name":prov, "value": f"${best_cost:.2f} / 1M tokens"})
+                  if best_thr  is not None: fast.append ({"name":prov, "value": f"{int(round(best_thr))} tokens/s"})
+
+              # 2) fallback providers/*/models.json
+              if not cheap or not fast:
+                  for p in [i["name"] for i in list_dir("providers") if i.get("type")=="dir"]:
+                      arr = fetch_json(f"providers/{p}/models.json")
+                      if not isinstance(arr, list): continue
+                      best_cost, best_thr = None, None
+                      for m in arr:
+                          c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
+                          t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
+                          cf, tf = to_float(c), to_float(t)
+                          if cf is not None: best_cost = cf if best_cost is None else min(best_cost, cf)
+                          if tf is not None: best_thr  = tf if best_thr  is None else max(best_thr,  tf)
+                      if best_cost is not None: cheap.append({"name":p, "value": f"${best_cost:.2f} / 1M tokens"})
+                      if best_thr  is not None: fast.append ({"name":p, "value": f"{int(round(best_thr))} tokens/s"})
+
               def parse_cost(v):
                   try: return float(v.split("$")[1].split("/")[0].strip())
                   except: return math.inf
@@ -112,114 +121,87 @@ jobs:
               fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
               return {"cheapest": cheap[:5], "fastest": fast[:5]}
 
-          # -------- models (code / multimodal / knowledge / contexte) ----------
-          def collect_models():
-              out = {"code":[], "multimodal":[], "knowledge":[], "longest_context":[]}
+          # ---------- Benchmarks modèles (code / multimodal / knowledge)
+          def load_top_from_model_benchmarks():
+              files = list_dir("model_benchmarks")
+              names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
 
-              # 1) Première passe: organizations/*/*/model.json
-              orgs = [i["name"] for i in list_dir("organizations") if i.get("type")=="dir"]
-              for org in orgs:
-                  models = [i["name"] for i in list_dir(f"organizations/{org}") if i.get("type")=="dir"]
-                  for m in models:
-                      d = fetch_json(f"organizations/{org}/{m}/model.json")
-                      if not isinstance(d, dict): continue
-                      name = d.get("name") or d.get("id") or m
-                      scores = d.get("scores",{}) or {}
-                      benches = d.get("benchmarks",{}) or {}
+              def load_first(match_regex):
+                  pat = re.compile(match_regex, re.I)
+                  cand = next((n for n in names if pat.search(n)), None)
+                  if not cand: return []
+                  js = fetch_json(f"model_benchmarks/{cand}")
+                  items=[]
+                  if isinstance(js, list):
+                      for it in js:
+                          nm = it.get("name") or it.get("model") or it.get("id")
+                          sc = normalize_score(it.get("score") or it.get("value"))
+                          if nm and sc is not None: items.append({"name":nm,"score":sc})
+                  elif isinstance(js, dict):
+                      for nm, sc in js.items():
+                          sc = normalize_score(sc)
+                          if sc is not None: items.append({"name":nm,"score":sc})
+                  items.sort(key=lambda x:x["score"], reverse=True)
+                  return items[:5]
 
-                      def pull(keys):
-                          v=None
-                          for k in keys:
-                              if k in scores: v = scores[k]; break
-                          if v is None:
-                              for k in keys:
-                                  b = benches.get(k)
-                                  if isinstance(b,dict) and "score" in b: v=b["score"]; break
-                          return normalize_score(v)
+              return {
+                  "code":       load_first(r"(aider|polyglot|code)"),
+                  "multimodal": load_first(r"(mmmu|multimodal|vision)"),
+                  "knowledge":  load_first(r"(gpqa|knowledge)")
+              }
 
-                      code = pull(["aider_polyglot","aider","code","coding"])
-                      multi= pull(["mmmu","multimodal","vision"])
-                      know = pull(["gpqa","knowledge"])
+          # ---------- Longest context (depuis data/models/*.json)
+          def collect_longest_context():
+              arr=[]
+              for f in list_dir("models"):
+                  if f.get("type")!="file" or not f["name"].endswith(".json"): continue
+                  d = fetch_json(f"models/{f['name']}")
+                  if not isinstance(d, dict): continue
+                  name = d.get("name") or d.get("id") or f["name"].removesuffix(".json")
+                  ctx  = d.get("context_length") or d.get("max_context_length") or d.get("input_context") or d.get("context") or d.get("window")
+                  v = to_float(ctx)
+                  if v is None and ctx is not None:
+                      s=str(ctx).lower().replace("tokens","").strip()
+                      mul=1
+                      if "m" in s: s=s.replace("m",""); mul=1_000_000
+                      elif "k" in s: s=s.replace("k",""); mul=1_000
+                      try: v=float(s)*mul
+                      except: v=None
+                  if v and v>0: arr.append({"name":name,"_tokens":int(v)})
 
-                      if code is not None: out["code"].append({"name":name,"score":code})
-                      if multi is not None: out["multimodal"].append({"name":name,"score":multi})
-                      if know is not None: out["knowledge"].append({"name":name,"score":know})
-
-                      # contexte
-                      ctx_raw = d.get("context_length") or d.get("max_context_length") or d.get("window") or d.get("context")
-                      if ctx_raw is not None:
-                          f = to_float(ctx_raw)
-                          if f is None:
-                              s=str(ctx_raw).lower().replace("tokens","").strip()
-                              mul=1
-                              if "m" in s: s=s.replace("m",""); mul=1_000_000
-                              elif "k" in s: s=s.replace("k",""); mul=1_000
-                              try: f=float(s)*mul
-                              except: f=None
-                          if f and f>0:
-                              out["longest_context"].append({"name":name,"_tokens":int(f)})
-
-                  time.sleep(0.02)
-
-              # 2) Seconde passe (si vide): data/model_benchmarks/*.json
-              need = [k for k in ("code","multimodal","knowledge") if not out[k]]
-              if need:
-                  files = list_dir("model_benchmarks")
-                  names = [f["name"] for f in files if f.get("type")=="file" and f["name"].endswith(".json")]
-
-                  def load_top(match_regex):
-                      pat = re.compile(match_regex, re.I)
-                      cand = next((n for n in names if pat.search(n)), None)
-                      if not cand: return []
-                      js = fetch_json(f"model_benchmarks/{cand}")
-                      items=[]
-                      if isinstance(js, list):
-                          for it in js:
-                              nm = it.get("name") or it.get("model") or it.get("id")
-                              sc = normalize_score(it.get("score") or it.get("value"))
-                              if nm and sc is not None: items.append({"name":nm,"score":sc})
-                      elif isinstance(js, dict):
-                          for nm, sc in js.items():
-                              sc = normalize_score(sc)
-                              if sc is not None: items.append({"name":nm,"score":sc})
-                      items.sort(key=lambda x:x["score"], reverse=True)
-                      return items[:5]
-
-                  if "code" in need:       out["code"]       = load_top(r"(aider|polyglot|code)")
-                  if "multimodal" in need: out["multimodal"] = load_top(r"(mmmu|multimodal|vision)")
-                  if "knowledge" in need:  out["knowledge"]  = load_top(r"(gpqa|knowledge)")
-
-              # Contexte formaté
-              ctx = out["longest_context"]
-              ctx.sort(key=lambda x: x.get("_tokens",0), reverse=True)
-              formatted=[]
-              for r in ctx[:5]:
-                  v = r["_tokens"]
-                  if v>=1_000_000: val=f"{v/1_000_000:.1f}M tokens"
-                  elif v>=1000:    val=f"{int(v/1000)}K tokens"
-                  else:            val=f"{int(v)} tokens"
-                  formatted.append({"name":r["name"], "value": val})
-              out["longest_context"] = formatted
-
-              # Tri top 5
-              out["code"].sort(key=lambda x:x["score"], reverse=True)
-              out["multimodal"].sort(key=lambda x:x["score"], reverse=True)
-              out["knowledge"].sort(key=lambda x:x["score"], reverse=True)
-              out["code"]       = out["code"][:5]
-              out["multimodal"] = out["multimodal"][:5]
-              out["knowledge"]  = out["knowledge"][:5]
+              arr.sort(key=lambda x:x["_tokens"], reverse=True)
+              out=[]
+              for r in arr[:5]:
+                  n=r["_tokens"]
+                  if n>=1_000_000: val=f"{n/1_000_000:.1f}M tokens"
+                  elif n>=1000:    val=f"{int(n/1000)}K tokens"
+                  else:            val=f"{int(n)} tokens"
+                  out.append({"name":r["name"], "value": val})
               return out
 
           def main():
-              data = collect_models()
-              data.update(collect_providers())
-              counts = {k: (len(v) if isinstance(v,list) else 0) for k,v in data.items()}
+              top = load_top_from_model_benchmarks()
+              top["longest_context"] = collect_longest_context()
+              top.update(collect_providers())
+
+              counts = {k: (len(v) if isinstance(v,list) else 0) for k,v in top.items()}
               print("SECTION COUNTS:", counts)
+
               with open("top-leaderboards.json","w",encoding="utf-8") as f:
-                  json.dump(data, f, indent=2, ensure_ascii=False)
-              print("OK: wrote top-leaderboards.json")
+                  json.dump(top, f, indent=2, ensure_ascii=False)
+
+              # log détaillé (et timestamp pour commit)
+              log = {
+                "generated_at_utc": datetime.datetime.utcnow().isoformat()+"Z",
+                "section_counts": counts
+              }
+              with open("build-log.json","w",encoding="utf-8") as f:
+                  json.dump(log, f, indent=2, ensure_ascii=False)
+
+              print("OK: wrote top-leaderboards.json & build-log.json")
               print("\\n===== top-leaderboards.json (preview) =====")
-              print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+              print(json.dumps(top, indent=2, ensure_ascii=False)[:2000])
+
           if __name__=="__main__":
               main()
           PY
@@ -229,16 +211,14 @@ jobs:
 
       - name: Commit & push if changed
         run: |
-          echo "Changed files (before):"
-          git status --porcelain || true
-          if ! git diff --quiet -- top-leaderboards.json; then
+          echo "Changed files (before):"; git status --porcelain || true
+          if ! git diff --quiet -- top-leaderboards.json build-log.json; then
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
-            git add top-leaderboards.json
-            git commit -m "chore: daily top-leaderboards.json update"
+            git add top-leaderboards.json build-log.json
+            git commit -m "chore: daily build from official repo"
             git push
           else
-            echo "No changes to top-leaderboards.json"
+            echo "No changes to files"
           fi
-          echo "Changed files (after):"
-          git status --porcelain || true
+          echo "Changed files (after):"; git status --porcelain || true
