@@ -1,12 +1,17 @@
-name: Build & Publish Top Leaderboards (from llm-stats)
+name: Leaderboards – Nightly build from llm-stats
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "23 6 * * *"
+    - cron: "23 6 * * *"   # tous les jours 06:23 UTC
 
 permissions:
   contents: write
+  issues: write
+
+concurrency:
+  group: leaderboards-nightly
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,12 +32,18 @@ jobs:
         with:
           node-version: 20
 
+      # Cache du binaire Chrome téléchargé par Puppeteer
+      - name: Cache Puppeteer browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/puppeteer
+          key: pptr-${{ runner.os }}-chrome-stable
+
       - name: Install Puppeteer (stealth)
         run: |
           npm init -y
           npm i puppeteer@22 puppeteer-extra puppeteer-extra-plugin-stealth
 
-      # ⬇️ Installe Chrome for Testing pour Puppeteer
       - name: Install Chrome for Testing
         run: npx puppeteer browsers install chrome
 
@@ -43,13 +54,10 @@ jobs:
           import puppeteer from 'puppeteer-extra'
           import StealthPlugin from 'puppeteer-extra-plugin-stealth'
           import { executablePath } from 'puppeteer'
-
           const URL = process.env.LEADERBOARD_URL || 'https://llm-stats.com/'
           const SAVE_SNAPSHOT = (process.env.SAVE_SNAPSHOT || '').toLowerCase()==='true'
-
           puppeteer.use(StealthPlugin())
           const sleep = (ms)=>new Promise(r=>setTimeout(r,ms))
-
           const TITLES = {
             code:  [/best\s+llm.*code/i, /aider\s+polyglot/i],
             multi: [/best\s+multimodal\s+llm/i, /mmmu\s+benchmark/i],
@@ -58,9 +66,7 @@ jobs:
             cheap: [/cheapest\s+api\s+provider/i, /input\s+cost/i, /maverick\s+input\s+cost/i],
             fast:  [/fastest\s+api\s+provider/i, /throughput/i, /maverick\s+throughput/i],
           }
-
           const clean = s => String(s).replace(/\s+/g,' ').trim()
-
           async function getCardHandle(page, regexes){
             const handle = await page.evaluateHandle((reSrcs)=>{
               const regs = reSrcs.map(s=>new RegExp(s,'i'))
@@ -73,7 +79,6 @@ jobs:
             }, regexes.map(r=>r.source))
             return handle.asElement()
           }
-
           async function parseCard(page, cardEl, isScore){
             if(!cardEl) return []
             const rows = await cardEl.$$('[class*="justify-between"]')
@@ -99,58 +104,75 @@ jobs:
             }
             return out
           }
-
           (async ()=>{
             const browser = await puppeteer.launch({
               headless: 'new',
-              executablePath: executablePath(),      // ⬅️ utilise Chrome installé
+              executablePath: executablePath(),
               args: ['--no-sandbox','--disable-setuid-sandbox','--window-size=1440,1024']
             })
             const page = await browser.newPage()
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
             await page.goto(URL, {waitUntil:'domcontentloaded', timeout: 90000})
             for(let i=0;i<12;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(300) }
-
             if(SAVE_SNAPSHOT){
               await page.screenshot({path:'leaderboard-snapshot.png', fullPage:true})
               await fs.writeFile('leaderboard-snapshot.html', await page.content(), 'utf8')
             }
-
             const codeEl  = await getCardHandle(page, TITLES.code)
             const multiEl = await getCardHandle(page, TITLES.multi)
             const knowEl  = await getCardHandle(page, TITLES.know)
             const ctxEl   = await getCardHandle(page, TITLES.ctx)
             const cheapEl = await getCardHandle(page, TITLES.cheap)
             const fastEl  = await getCardHandle(page, TITLES.fast)
-
             const code  = await parseCard(page, codeEl,  true)
             const multi = await parseCard(page, multiEl, true)
             const know  = await parseCard(page, knowEl,  true)
             const ctx   = await parseCard(page, ctxEl,   false)
             const cheap = await parseCard(page, cheapEl, false)
             const fast  = await parseCard(page, fastEl,  false)
-
-            const data = {
-              code, multimodal: multi, knowledge: know,
-              longest_context: ctx, cheapest: cheap, fastest: fast
-            }
+            const data = { code, multimodal: multi, knowledge: know, longest_context: ctx, cheapest: cheap, fastest: fast }
             await fs.writeFile('top-leaderboards.json', JSON.stringify(data, null, 2), 'utf8')
-            console.log('COUNTS:', Object.fromEntries(Object.entries(data).map(([k,v])=>[k, v.length])))
+            // métriques pour la gate
+            const counts = Object.fromEntries(Object.entries(data).map(([k,v])=>[k, v.length]))
+            await fs.writeFile('counts.json', JSON.stringify(counts), 'utf8')
+            console.log('COUNTS:', counts)
             await browser.close()
-          })().catch(e => { console.error(e); process.exit(1) })
+          })().catch(e=>{ console.error(e); process.exit(1) })
           JS
 
       - name: Run scraper
         run: node scrape_leaderboards.mjs
 
-      - name: Commit & push results
+      - name: Validate data (gate)
+        id: gate
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
+          node -e "const c=require('./counts.json'); const ok=(c.code===5 && c.multimodal===5 && c.knowledge===5 && c.longest_context>0 && c.cheapest>0 && c.fastest>0); console.log('OK=',ok); if(!ok) process.exit(2);"
+
+      - name: Commit & push results
+        if: steps.gate.outcome == 'success'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
             git commit -m "update: top-leaderboards.json from llm-stats (puppeteer)"
             git push
           else
             echo "No changes to commit."
           fi
+
+      - name: Open Issue if validation failed
+        if: steps.gate.outcome != 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.existsSync('leaderboard-snapshot.html')
+              ? "Validation failed. See snapshot files committed in the repo (HTML/PNG)."
+              : "Validation failed and no snapshot generated.";
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "Leaderboards build failed – data gate",
+              body
+            });
