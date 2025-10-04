@@ -2,7 +2,7 @@ name: Build & Publish Top Leaderboards (from official repo)
 
 on:
   schedule:
-    - cron: "15 5 * * *"   # tous les jours à 05:15 UTC
+    - cron: "15 5 * * *"   # chaque jour à 05:15 UTC
   workflow_dispatch:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
           RAW=f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
 
           S=requests.Session()
-          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/2.3"})
+          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/2.4"})
 
           def list_dir(path:str):
               r=S.get(f"{API}/{path}".rstrip("/"),timeout=30)
@@ -55,7 +55,7 @@ jobs:
               except: return None
 
           def normalize_score(v):
-              """0.884 -> 88.4 ; 88.4 reste 88.4"""
+              # 0.884 -> 88.4 ; 88.4 reste 88.4
               f = to_float(v)
               if f is None: return None
               if f <= 1.0: f *= 100.0
@@ -188,7 +188,8 @@ jobs:
               with open("top-leaderboards.json","w",encoding="utf-8") as f:
                   json.dump(data, f, indent=2, ensure_ascii=False)
               print("OK: wrote top-leaderboards.json")
-
+              print("\\n===== top-leaderboards.json (preview) =====")
+              print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
           if __name__=="__main__":
               main()
           PY
@@ -198,6 +199,9 @@ jobs:
 
       - name: Commit & push if changed
         run: |
+          set -e
+          echo "Changed files:"
+          git status --porcelain || true
           if ! git diff --quiet -- top-leaderboards.json; then
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
@@ -205,5 +209,5 @@ jobs:
             git commit -m "chore: daily top-leaderboards.json update"
             git push
           else
-            echo "No changes"
+            echo "No changes to top-leaderboards.json"
           fi
