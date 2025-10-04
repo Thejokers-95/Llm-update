@@ -14,11 +14,11 @@
       "value": "1096 tokens/s"
     },
     {
-      "name": "groq",
+      "name": "zeroeval",
       "value": "1000 tokens/s"
     },
     {
-      "name": "zeroeval",
+      "name": "groq",
       "value": "1000 tokens/s"
     },
     {
