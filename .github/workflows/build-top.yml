@@ -1,190 +1,221 @@
-name: Build from LLM-Stats (merge into top-leaderboards.json)
+name: Build from llm-stats.com (scrape & merge JSON)
 
 on:
   schedule:
-    - cron: "25 5 * * *"   # tous les jours à 05:25 UTC
+    - cron: "30 5 * * *"   # tous les jours à 05:30 UTC
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  llmstats:
+  scrape:
     runs-on: ubuntu-latest
     env:
-      # Mets ici l'URL publique de la page/table à parser (ou un CSV/JSON direct si tu en as un)
-      LLM_STATS_URL: https://llm-stats.com/   # <- tu peux remplacer par l'URL exacte du tableau filtré
+      # Tu peux remplacer par une URL filtrée (ex: vue Multimodal/Open Models). L’outil scrolle pour charger les lignes.
+      LLM_STATS_URL: https://llm-stats.com/
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Puppeteer
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pandas lxml html5lib requests
+          npm init -y
+          npm i puppeteer@22
 
-      - name: Write builder
+      - name: Write scraper
         run: |
-          cat > llmstats_to_top.py << 'PY'
-          import os, re, json, math, requests
-          import pandas as pd
+          cat > scrape_llmstats.mjs <<'JS'
+          import fs from 'node:fs/promises';
+          import puppeteer from 'puppeteer';
 
-          URL = os.environ.get("LLM_STATS_URL", "").strip()
-          if not URL:
-              raise SystemExit("LLM_STATS_URL manquant")
+          const URL = process.env.LLM_STATS_URL || 'https://llm-stats.com/';
 
-          def to_float(x):
-              if x is None: return None
-              if isinstance(x, (int, float)): return float(x)
-              s = str(x).strip().replace(",", "")
-              s = s.replace("$","")
-              if s in ("", "-", "—", "–", "None", "null"): return None
-              try:
-                  return float(s)
-              except:
-                  # 88.4% -> 88.4
-                  if s.endswith("%"):
-                      try: return float(s[:-1])
-                      except: return None
-                  return None
+          const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
-          def parse_tokens_cell(x):
-              """convertit 10,000K / 10M / 1 048 576 en entier de tokens"""
-              if x is None: return None
-              s = str(x).lower().replace("tokens","").replace(",","").replace(" ", "")
-              if s in ("", "-", "—", "–"): return None
-              # déjà un entier ?
-              m = re.fullmatch(r"\d+", s)
-              if m: return int(s)
-              # 10m / 2.1m
-              m = re.fullmatch(r"(\d+(?:\.\d+)?)m", s)
-              if m: return int(float(m.group(1))*1_000_000)
-              # 256k / 400k
-              m = re.fullmatch(r"(\d+(?:\.\d+)?)k", s)
-              if m: return int(float(m.group(1))*1_000)
-              # 1_048_576
-              m = re.fullmatch(r"(\d+)", re.sub(r"[_ ]","",s))
-              if m: return int(m.group(1))
-              return None
-
-          def fmt_tokens(n):
-              if n is None: return None
-              if n >= 1_000_000: return f"{n/1_000_000:.1f}M tokens"
-              if n >= 1_000:     return f"{int(n/1000)}K tokens"
-              return f"{int(n)} tokens"
-
-          # --- 1) Charger table depuis l'URL (HTML ou CSV/JSON si l'URL l'est)
-          tables = []
-          if URL.lower().endswith(".csv"):
-              df = pd.read_csv(URL)
-              tables = [df]
-          elif URL.lower().endswith(".json"):
-              # JSON → essaie DataFrame direct
-              js = requests.get(URL, timeout=30).json()
-              if isinstance(js, list):
-                  tables = [pd.DataFrame(js)]
-              elif isinstance(js, dict) and "data" in js:
-                  tables = [pd.DataFrame(js["data"])]
-              else:
-                  raise SystemExit("JSON non reconnu")
-          else:
-              # HTML → pandas lit tous les tableaux
-              tables = pd.read_html(URL)
-
-          if not tables:
-              raise SystemExit("Aucun tableau détecté sur l'URL")
-
-          # --- 2) Choisir la table la plus “large”
-          df = max(tables, key=lambda d: d.shape[1])
-
-          # Normalise noms de colonnes (sans accents, minuscules)
-          def norm(s): 
-              return re.sub(r"[^a-z0-9]+"," ", str(s).lower()).strip()
-
-          cols = {norm(c): c for c in df.columns}
-          # Colonnes qu’on cherche
-          col_org   = next((cols[k] for k in cols if k in ("organization","org","vendor","company","provider")), None)
-          col_model = next((cols[k] for k in cols if k in ("model","name","model name")), None)
-          col_gpqa  = next((cols[k] for k in cols if k in ("gpqa","gpqa score")), None)
-          col_mmmu  = next((cols[k] for k in cols if k in ("mmmu","multimodal","vision")), None)
-          col_mmlu  = next((cols[k] for k in cols if k in ("mmlu","mmlu score")), None)
-          col_ctx   = next((cols[k] for k in cols if k in ("context","input context length","input tokens","context length")), None)
-          col_inpm  = next((cols[k] for k in cols if k in ("input m","input m tokens","input price m","input m price","input m usd","input m tokens usd")), None)
-
-          # --- 3) Extraire listes
-          knowledge = []
-          if col_gpqa and col_model:
-              tmp = df[[col_model, col_gpqa]].dropna()
-              for _, r in tmp.iterrows():
-                  nm = str(r[col_model]).strip()
-                  sc = to_float(r[col_gpqa])
-                  if nm and sc is not None:
-                      knowledge.append({"name": nm, "score": sc})
-              knowledge.sort(key=lambda x: x["score"], reverse=True)
-              knowledge = knowledge[:5]
-
-          # Multimodal : MMMU prioritaire, sinon MMLU
-          multimodal = []
-          col_mm = col_mmmu or col_mmlu
-          if col_mm and col_model:
-              tmp = df[[col_model, col_mm]].dropna()
-              for _, r in tmp.iterrows():
-                  nm = str(r[col_model]).strip()
-                  sc = to_float(r[col_mm])
-                  if nm and sc is not None:
-                      multimodal.append({"name": nm, "score": sc})
-              multimodal.sort(key=lambda x: x["score"], reverse=True)
-              multimodal = multimodal[:5]
-
-          # Longest context
-          longest_context = []
-          if col_ctx and col_model:
-              tmp = df[[col_model, col_ctx]].dropna()
-              ctx_rows = []
-              for _, r in tmp.iterrows():
-                  nm = str(r[col_model]).strip()
-                  v  = parse_tokens_cell(r[col_ctx])
-                  if nm and v:
-                      ctx_rows.append((nm, v))
-              ctx_rows.sort(key=lambda x: x[1], reverse=True)
-              longest_context = [{"name": nm, "value": fmt_tokens(v)} for nm, v in ctx_rows[:5]]
-
-          # Cheapest provider (min input $/M par Organization)
-          cheapest = []
-          if col_inpm and col_org:
-              tmp = df[[col_org, col_inpm]].dropna()
-              best = {}
-              for _, r in tmp.iterrows():
-                  org = str(r[col_org]).strip()
-                  c   = to_float(r[col_inpm])
-                  if org and c is not None:
-                      best[org] = c if org not in best else min(best[org], c)
-              cheapest = [{"name": k, "value": f"${v:.2f} / 1M tokens"} for k, v in best.items()]
-              cheapest.sort(key=lambda x: float(x["value"].split("$")[1].split("/")[0]))
-              cheapest = cheapest[:5]
-
-          # --- 4) Fusion avec un éventuel top-leaderboards.json existant
-          existing = {}
-          if os.path.isfile("top-leaderboards.json"):
-              try:
-                  existing = json.load(open("top-leaderboards.json","r",encoding="utf-8"))
-              except Exception:
-                  existing = {}
-
-          data = {
-              "code": existing.get("code", []),              # on conserve s’il existait
-              "multimodal": multimodal or existing.get("multimodal", []),
-              "knowledge": knowledge or existing.get("knowledge", []),
-              "longest_context": longest_context or existing.get("longest_context", []),
-              "cheapest": cheapest or existing.get("cheapest", []),
-              "fastest": existing.get("fastest", [])         # pas disponible sur llm-stats → on conserve
+          function toFloat(x){
+            if (x === null || x === undefined) return null;
+            const s = String(x).replace(/[, $%]/g,'').trim();
+            if (!s || s === '-' || s === '—' || s === '–') return null;
+            const f = Number(s);
+            return Number.isFinite(f) ? f : null;
+          }
+          function parseTokensCell(x){
+            if (x === null || x === undefined) return null;
+            let s = String(x).toLowerCase().replace(/[, ]/g,'').replace('tokens','');
+            if (!s || s==='-'||s==='—'||s==='–') return null;
+            // 1_048_576, 1048576
+            if (/^\d+$/.test(s)) return Number(s);
+            // 2.1m / 256k
+            let m = s.match(/^([\d.]+)m$/); if (m) return Math.round(Number(m[1])*1_000_000);
+            m = s.match(/^([\d.]+)k$/);     if (m) return Math.round(Number(m[1])*1_000);
+            return null;
+          }
+          function fmtTokens(n){
+            if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M tokens`;
+            if (n >= 1_000)     return `${Math.round(n/1000)}K tokens`;
+            return `${Math.round(n)} tokens`;
           }
 
-          with open("top-leaderboards.json","w",encoding="utf-8") as f:
-              json.dump(data, f, indent=2, ensure_ascii=False)
+          // Map les en-têtes → clefs canoniques
+          function canonicalize(th){
+            const k = th.toLowerCase().replace(/\s+/g,' ').trim();
+            if (/^organization|vendor|provider|company$/.test(k)) return 'org';
+            if (/^model|name$/.test(k)) return 'model';
+            if (/input.*context|context.*length/.test(k)) return 'context';
+            if (/input.*\$.*m|input.*m.*price|price.*per.*1m|price.*\/.*1m/.test(k)) return 'input_per_m';
+            if (/^gpqa/.test(k)) return 'gpqa';
+            if (/^mmmu|multimodal|vision$/.test(k)) return 'mmmu';
+            if (/^mmlu$/.test(k)) return 'mmlu';
+            return null;
+          }
 
-          print("OK. Counts:", {k: len(v) for k,v in data.items()})
-          PY
+          // Essaie d’extraire un tableau <table>, sinon un tableau ARIA
+          async function extractRows(page){
+            // Attends que quelque chose ressemblant à des lignes apparaisse
+            await page.waitForSelector('table, [role="table"]', {timeout: 30000}).catch(()=>{});
+            // Scroll pour charger lazy/infinite rows
+            for (let i=0;i<12;i++){
+              await page.evaluate(()=>window.scrollBy(0, window.innerHeight));
+              await sleep(600);
+            }
+            // 1) <table>
+            const hasTable = await page.$('table');
+            if (hasTable){
+              return page.evaluate(()=>{
+                const tbl = document.querySelector('table');
+                const head = [...tbl.querySelectorAll('thead th')].map(th=>th.innerText.trim());
+                const bodyRows = [...tbl.querySelectorAll('tbody tr')];
+                const rows = bodyRows.map(tr => [...tr.querySelectorAll('td')].map(td=>td.innerText.trim()));
+                return {head, rows};
+              });
+            }
+            // 2) ARIA table fallback
+            const hasAria = await page.$('[role="table"]');
+            if (hasAria){
+              return page.evaluate(()=>{
+                const table = document.querySelector('[role="table"]');
+                const head = [...table.querySelectorAll('[role="columnheader"]')].map(el=>el.innerText.trim());
+                const rowEls = [...table.querySelectorAll('[role="row"]')].filter(r => r.querySelector('[role="cell"]'));
+                const rows = rowEls.map(r => [...r.querySelectorAll('[role="cell"]')].map(td=>td.innerText.trim()));
+                return {head, rows};
+              });
+            }
+            return {head:[], rows:[]};
+          }
+
+          // Calcule tops à partir des objets [{org, model, context, input_per_m, gpqa, mmmu, mmlu}]
+          function computeTops(items){
+            const knowledge = items
+              .filter(r => r.gpqa != null)
+              .sort((a,b)=>b.gpqa-a.gpqa)
+              .slice(0,5)
+              .map(r => ({name: r.model, score: r.gpqa}));
+
+            // Multimodal = MMMU prioritaire, sinon MMLU
+            const multi = items
+              .map(r => ({model:r.model, score: r.mmmu ?? r.mmlu}))
+              .filter(r => r.score != null)
+              .sort((a,b)=>b.score-a.score)
+              .slice(0,5)
+              .map(r => ({name: r.model, score: r.score}));
+
+            // Longest context
+            const ctx = items
+              .filter(r => r.context_tokens != null)
+              .sort((a,b)=>b.context_tokens - a.context_tokens)
+              .slice(0,5)
+              .map(r => ({name: r.model, value: fmtTokens(r.context_tokens)}));
+
+            // Cheapest provider = min Input $/M par org
+            const minByOrg = new Map();
+            for (const r of items){
+              if (r.org && r.input_per_m != null){
+                const prev = minByOrg.get(r.org);
+                minByOrg.set(r.org, prev==null? r.input_per_m : Math.min(prev, r.input_per_m));
+              }
+            }
+            const cheapest = [...minByOrg.entries()]
+              .map(([org,val]) => ({name: org, value: `$${val.toFixed(2)} / 1M tokens`}))
+              .sort((a,b)=>parseFloat(a.value.slice(1)) - parseFloat(b.value.slice(1)))
+              .slice(0,5);
+
+            return {knowledge, multimodal: multi, longest_context: ctx, cheapest};
+          }
+
+          (async ()=>{
+            const browser = await puppeteer.launch({
+              headless: 'new',
+              args: ['--no-sandbox','--disable-setuid-sandbox']
+            });
+            const page = await browser.newPage();
+            await page.setViewport({width: 1400, height: 900});
+            await page.goto(URL, {waitUntil: 'networkidle2', timeout: 60000});
+
+            const {head, rows} = await extractRows(page);
+            await browser.close();
+
+            if (!head.length || !rows.length){
+              console.log('No table detected.');
+              process.exit(0);
+            }
+
+            // Map colonnes
+            const map = {};
+            head.forEach((h, idx)=>{
+              const key = canonicalize(h);
+              if (key) map[key] = idx;
+            });
+
+            const items = rows.map(cells=>{
+              const get = (k)=> (map[k] != null ? cells[map[k]] : null);
+              const org   = get('org')   ?? '';
+              const model = get('model') ?? '';
+              const ctx   = get('context');
+              const inpm  = get('input_per_m');
+              const gpqa  = get('gpqa');
+              const mmmu  = get('mmmu');
+              const mmlu  = get('mmlu');
+
+              const obj = {
+                org: String(org).trim(),
+                model: String(model).trim(),
+                context_tokens: parseTokensCell(ctx),
+                input_per_m: toFloat(inpm),
+                gpqa: toFloat(gpqa),
+                mmmu: toFloat(mmmu),
+                mmlu: toFloat(mmlu),
+              };
+              return obj;
+            }).filter(r => r.model);
+
+            const tops = computeTops(items);
+
+            // Fusion avec JSON existant pour conserver "code" et "fastest"
+            let existing = {};
+            try { existing = JSON.parse(await fs.readFile('top-leaderboards.json','utf8')); } catch {}
+            const merged = {
+              code: existing?.code ?? [],
+              multimodal: tops.multimodal,
+              knowledge: tops.knowledge,
+              longest_context: tops.longest_context,
+              cheapest: tops.cheapest,
+              fastest: existing?.fastest ?? []
+            };
+
+            await fs.writeFile('top-leaderboards.json', JSON.stringify(merged, null, 2), 'utf8');
+            console.log('Done. Counts:', Object.fromEntries(Object.entries(merged).map(([k,v])=>[k, Array.isArray(v)? v.length : 0])));
+          })().catch(e=>{ console.error(e); process.exit(1); });
+          JS
+
+      - name: Run scraper
+        run: node scrape_llmstats.mjs
 
       - name: Commit & push if changed
         run: |
@@ -193,7 +224,7 @@ jobs:
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
             git add top-leaderboards.json
-            git commit -m "chore: merge from llm-stats into consolidated JSON"
+            git commit -m "chore: update from llm-stats.com"
             git push
           else
             echo "No changes"
