@@ -1,0 +1,140 @@
+import fs from 'node:fs/promises'
+import puppeteer from 'puppeteer'
+import puppeteerExtra from 'puppeteer-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+
+const URL = process.env.LEADERBOARD_URL || 'https://llm-stats.com/'
+const SAVE_SNAPSHOT = (process.env.SAVE_SNAPSHOT || '').toLowerCase() === 'true'
+
+puppeteerExtra.use(StealthPlugin())
+
+const sleep = (ms)=> new Promise(r=>setTimeout(r,ms))
+
+// ---------- utils ----------
+const H_TITLES = {
+  code:  [/best\s+llm.*code/i, /aider\s+polyglot/i],
+  multi: [/best\s+multimodal\s+llm/i, /mmmu\s+benchmark/i],
+  know:  [/best\s+llm.*knowledge/i, /gpqa\s+benchmark/i],
+  ctx:   [/longest\s+context/i, /max\s+input\s+tokens/i],
+  cheap: [/cheapest\s+api\s+provider/i, /maverick\s+input\s+cost/i, /input\s+cost/i],
+  fast:  [/fastest\s+api\s+provider/i, /maverick\s+throughput/i, /throughput/i],
+}
+
+function cleanLines(txt){
+  return String(txt)
+    .split(/\n+/)
+    .map(s=>s.replace(/\s+/g,' ').trim())
+    .filter(Boolean)
+}
+function fmtTokens(n){
+  if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M tokens`
+  if (n >= 1_000)     return `${Math.round(n/1000)}K tokens`
+  return `${Math.round(n)} tokens`
+}
+
+function getSectionSlice(lines, regexArray, windowSize=120){
+  // trouve l’index d’un titre correspondant puis prend un “voisinage”
+  const idx = lines.findIndex(l => regexArray.some(r=>r.test(l)))
+  if (idx === -1) return []
+  return lines.slice(idx, idx+windowSize)
+}
+
+function parseRankedBlock(lines, mode){
+  // mode: 'score' (Code/MMMU/GPQA) | 'value' (Context/Cheapest/Fastest)
+  // repère les rangs 1..5 puis extrait name + score/value
+  const ranks = []
+  for (let i=0;i<lines.length;i++){
+    if (/^[1-5]$/.test(lines[i]) || /^[1-5]\s/.test(lines[i])) ranks.push(i)
+  }
+  if (!ranks.length) return []
+
+  const rows=[]
+  for (let r=0;r<ranks.length && rows.length<5;r++){
+    const start = ranks[r]
+    const end   = ranks[r+1] ?? lines.length
+    let seg = lines.slice(start, end)
+    if (/^[1-5]\s+/.test(seg[0])) seg[0] = seg[0].replace(/^[1-5]\s+/,'')
+    // name: 1ère ligne “textuelle”
+    const name = seg.find(s => /[A-Za-z0-9]/.test(s)) || ''
+    if (!name) continue
+    // value/score: cherche une ligne avec %, tokens(/s) ou $…/1M
+    let valLine = [...seg].reverse().find(s => /%|\btokens(?:\/s)?\b|\$.*\/\s*1M/i.test(s))
+    if (!valLine) valLine = seg.find(s => /%|\btokens(?:\/s)?\b|\$.*\/\s*1M/i.test(s))
+    if (!valLine) continue
+
+    if (mode==='score'){
+      const m = valLine.match(/(\d{1,3}(?:\.\d+)?)(?:\s*%|$)/)
+      if (!m) continue
+      rows.push({name, score: Number(m[1])})
+    }else{
+      // tokens(/s)
+      const tok = valLine.match(/([\d\.,]+(?:\s*[MK])?)\s*tokens(?:\/s)?/i)
+      if (tok){
+        const raw = tok[1].replace(/,/g,'').trim()
+        let n
+        if (/m$/i.test(raw))      n = Number(raw.replace(/m/i,''))*1_000_000
+        else if (/k$/i.test(raw)) n = Number(raw.replace(/k/i,''))*1_000
+        else                       n = Number(raw)
+        const isPerSec = /tokens\/s/i.test(valLine)
+        rows.push({name, value: isPerSec ? `${Math.round(n)} tokens/s` : fmtTokens(n)})
+      }else{
+        const per = valLine.match(/\$\s*([\d\.,]+)\s*\/\s*1M/i)
+        if (per){
+          rows.push({name, value: `$${Number(per[1])} / 1M tokens`})
+        }
+      }
+    }
+  }
+  return rows.slice(0,5)
+}
+
+(async ()=>{
+  const browser = await puppeteerExtra.launch({
+    headless: 'new',
+    args: [
+      '--no-sandbox','--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--window-size=1440,1000'
+    ]
+  })
+  const page = await browser.newPage()
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+  await page.setViewport({width:1440, height:1000})
+  await page.goto(URL, {waitUntil:'domcontentloaded', timeout: 90000})
+  // laisse le temps aux hydrations
+  for (let i=0;i<12;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(350) }
+
+  const bodyText = await page.evaluate(()=>document.body.innerText)
+  const html     = await page.content()
+  await page.screenshot({path:'leaderboard-snapshot.png', fullPage:true})
+  await browser.close()
+
+  if (SAVE_SNAPSHOT){
+    await fs.writeFile('leaderboard-snapshot.html', html, 'utf8')
+  }
+
+  const L = cleanLines(bodyText)
+
+  const code  = parseRankedBlock(getSectionSlice(L, H_TITLES.code),  'score')
+  const multi = parseRankedBlock(getSectionSlice(L, H_TITLES.multi), 'score')
+  const know  = parseRankedBlock(getSectionSlice(L, H_TITLES.know),  'score')
+  const ctx   = parseRankedBlock(getSectionSlice(L, H_TITLES.ctx),   'value')
+  const cheap = parseRankedBlock(getSectionSlice(L, H_TITLES.cheap), 'value')
+  const fast  = parseRankedBlock(getSectionSlice(L, H_TITLES.fast),  'value')
+
+  // merge avec JSON existant
+  let existing = {}
+  try { existing = JSON.parse(await fs.readFile('top-leaderboards.json','utf8')) } catch {}
+
+  const merged = {
+    code:            code.length  ? code  : (existing.code || []),
+    multimodal:      multi.length ? multi : (existing.multimodal || []),
+    knowledge:       know.length  ? know  : (existing.knowledge || []),
+    longest_context: ctx.length   ? ctx   : (existing.longest_context || []),
+    cheapest:        cheap.length ? cheap : (existing.cheapest || []),
+    fastest:         fast.length  ? fast  : (existing.fastest || []),
+  }
+
+  await fs.writeFile('top-leaderboards.json', JSON.stringify(merged, null, 2), 'utf8')
+  console.log('Done. Counts:', Object.fromEntries(Object.entries(merged).map(([k,v])=>[k, Array.isArray(v)? v.length : 0])))
+})().catch(e=>{ console.error(e); process.exit(1) })

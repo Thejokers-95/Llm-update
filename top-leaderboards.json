@@ -1,29 +1,82 @@
 {
-  "code": [],
-  "multimodal": [],
-  "knowledge": [],
-  "longest_context": [],
-  "cheapest": [],
+  "code": [
+    {
+      "name": "5",
+      "score": 65
+    }
+  ],
+  "multimodal": [
+    {
+      "name": "5",
+      "score": 65
+    }
+  ],
+  "knowledge": [
+    {
+      "name": "5",
+      "score": 65
+    }
+  ],
+  "longest_context": [
+    {
+      "name": "1",
+      "value": "10.0M tokens"
+    },
+    {
+      "name": "2",
+      "value": "2.1M tokens"
+    },
+    {
+      "name": "3",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "4",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "5",
+      "value": "1.0M tokens"
+    }
+  ],
+  "cheapest": [
+    {
+      "name": "1",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "2",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "3",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "4",
+      "value": "1.0M tokens"
+    },
+    {
+      "name": "5",
+      "value": "1.0M tokens"
+    }
+  ],
   "fastest": [
     {
-      "name": "cerebras",
-      "value": "2220 tokens/s"
+      "name": "1",
+      "value": "639 tokens/s"
     },
     {
-      "name": "sambanova",
-      "value": "1096 tokens/s"
+      "name": "2",
+      "value": "307 tokens/s"
     },
     {
-      "name": "zeroeval",
-      "value": "1000 tokens/s"
+      "name": "3",
+      "value": "98 tokens/s"
     },
     {
-      "name": "groq",
-      "value": "1000 tokens/s"
-    },
-    {
-      "name": "openai",
-      "value": "500 tokens/s"
+      "name": "4",
+      "value": "94 tokens/s"
     }
   ]
 }
