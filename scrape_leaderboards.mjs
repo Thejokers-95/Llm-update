@@ -59,7 +59,7 @@ async function parseCard(page, cardEl, isScore){
   return out
 }
 
-// ----------- extraction du grand tableau -----------
+/** ---------- extraction du grand tableau avec fallbacks pour "Organisation" ---------- */
 async function extractMainTable(page, maxRows = 30) {
   const tables = await page.$$('table')
   let table = null
@@ -73,7 +73,20 @@ async function extractMainTable(page, maxRows = 30) {
   if (!table) return []
 
   const headers = await table.$$eval('thead th', ths => ths.map(th => th.innerText.trim()))
-  const rows = await table.$$eval('tbody tr', trs => trs.map(tr => [...tr.querySelectorAll('td')].map(td => td.innerText.trim())))
+  // Chaque cellule: on tente innerText, puis aria-label, alt, title, textContent.
+  const rows = await table.$$eval('tbody tr', trs =>
+    trs.map(tr => [...tr.querySelectorAll('td')].map(td => {
+      const text = (td.innerText || '').trim()
+      const fallback =
+        td.getAttribute('aria-label') ||
+        (td.querySelector('[aria-label]') && td.querySelector('[aria-label]').getAttribute('aria-label')) ||
+        (td.querySelector('img[alt]') && td.querySelector('img[alt]').getAttribute('alt')) ||
+        (td.querySelector('svg[aria-label]') && td.querySelector('svg[aria-label]').getAttribute('aria-label')) ||
+        td.getAttribute('title') ||
+        (td.textContent || '').trim()
+      return text || fallback || ''
+    }))
+  )
 
   const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
   const idx = {}
@@ -128,10 +141,10 @@ async function extractMainTable(page, maxRows = 30) {
   const ctx   = await parseCard(page, ctxEl,   false)
   const cheap = await parseCard(page, cheapEl, false)
   const fast  = await parseCard(page, fastEl,  false)
-  const table = await extractMainTable(page, 30) // top 30 lignes
+  const table = await extractMainTable(page, 30) // top 30
 
   const data = {
-    table, // tableau principal
+    table,
     code, multimodal: multi, knowledge: know,
     longest_context: ctx, cheapest: cheap, fastest: fast
   }
