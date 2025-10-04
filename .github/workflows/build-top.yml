@@ -1,0 +1,176 @@
+name: Build & Publish Top Leaderboards (from official repo)
+
+on:
+  schedule:
+    - cron: "15 5 * * *"  # tous les jours à 05:15 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: python -m pip install requests
+
+      # On écrit le script Python directement dans le workflow (pas besoin de fichier séparé)
+      - name: Write build script
+        run: |
+          cat > build_top_leaderboards.py << 'PY'
+          #!/usr/bin/env python3
+          import os, time, json, math, requests
+
+          OWNER = "JonathanChavezTamales"
+          REPO  = "llm-leaderboard"
+          BASE_API = f"https://api.github.com/repos/{OWNER}/{REPO}/contents/data"
+          BASE_RAW = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/data"
+
+          S = requests.Session()
+          S.headers.update({"Accept":"application/vnd.github+json","User-Agent":"llm-top-builder/1.0"})
+
+          def gh_list(path):
+              url = f"{BASE_API}/{path}".rstrip("/")
+              r = S.get(url, timeout=30)
+              if r.status_code == 404: return []
+              r.raise_for_status()
+              data = r.json()
+              return data if isinstance(data, list) else []
+
+          def fetch_json_raw(path):
+              url = f"{BASE_RAW}/{path}".lstrip("/")
+              r = S.get(url, timeout=30)
+              if r.status_code != 200: return None
+              try: return r.json()
+              except: return None
+
+          def safe_float(x):
+              try: return float(x)
+              except: return None
+
+          def build_model_tops():
+              results_code, results_multi, results_know, results_ctx = [], [], [], []
+              orgs = [i["name"] for i in gh_list("organizations") if i.get("type") == "dir"]
+              for org in orgs:
+                  models = [i["name"] for i in gh_list(f"organizations/{org}") if i.get("type") == "dir"]
+                  for model in models:
+                      data = fetch_json_raw(f"organizations/{org}/{model}/model.json")
+                      if not isinstance(data, dict): continue
+                      name = data.get("name") or data.get("id") or model
+
+                      scores = data.get("scores", {})
+                      aider = scores.get("aider") or scores.get("aider_polyglot") or scores.get("code") or scores.get("coding")
+                      mmmu  = scores.get("mmmu") or scores.get("multimodal") or scores.get("vision")
+                      gpqa  = scores.get("gpqa") or scores.get("knowledge")
+
+                      ctx = data.get("context_length") or data.get("max_context_length") or data.get("window") or data.get("context")
+
+                      if aider is not None:
+                          v = safe_float(aider)
+                          if v is not None: results_code.append({"name": name, "score": round(v, 1)})
+
+                      if mmmu is not None:
+                          v = safe_float(mmmu)
+                          if v is not None: results_multi.append({"name": name, "score": round(v, 1)})
+
+                      if gpqa is not None:
+                          v = safe_float(gpqa)
+                          if v is not None: results_know.append({"name": name, "score": round(v, 1)})
+
+                      if ctx is not None:
+                          v = safe_float(ctx)
+                          if v is None:
+                              s = str(ctx).lower().replace("tokens","").strip()
+                              mul = 1
+                              if "m" in s: s = s.replace("m",""); mul = 1_000_000
+                              elif "k" in s: s = s.replace("k",""); mul = 1_000
+                              try: v = float(s)*mul
+                              except: v = None
+                          if v and v > 0: results_ctx.append({"name": name, "context_length": int(v)})
+                  time.sleep(0.05)
+
+              results_code.sort(key=lambda x: x["score"], reverse=True)
+              results_multi.sort(key=lambda x: x["score"], reverse=True)
+              results_know.sort(key=lambda x: x["score"], reverse=True)
+              results_ctx.sort(key=lambda x: x["context_length"], reverse=True)
+
+              ctx_formatted = []
+              for r in results_ctx[:5]:
+                  v = r["context_length"]
+                  if v >= 1_000_000: s = f"{v/1_000_000:.1f}M tokens"
+                  elif v >= 1_000:   s = f"{int(v/1_000)}K tokens"
+                  else:              s = f"{int(v)} tokens"
+                  ctx_formatted.append({"name": r["name"], "value": s})
+
+              return {
+                  "code": results_code[:5],
+                  "multimodal": results_multi[:5],
+                  "knowledge": results_know[:5],
+                  "longest_context": ctx_formatted,
+              }
+
+          def build_provider_tops():
+              cheap, fast = [], []
+              providers = [i["name"] for i in gh_list("providers") if i.get("type") == "dir"]
+              for prov in providers:
+                  models = fetch_json_raw(f"providers/{prov}/models.json")
+                  if not isinstance(models, list): continue
+                  best_cost = None; best_thr = None
+                  for m in models:
+                      c = m.get("input_cost_per_million") or m.get("input_cost") or m.get("price_per_million")
+                      c = safe_float(c)
+                      if c is not None:
+                          best_cost = min(best_cost, c) if best_cost is not None else c
+                      t = m.get("tokens_per_second") or m.get("throughput") or m.get("tps")
+                      t = safe_float(t)
+                      if t is not None:
+                          best_thr = max(best_thr, t) if best_thr is not None else t
+                  if best_cost is not None: cheap.append({"name": prov, "value": f"${best_cost:.2f} / 1M tokens"})
+                  if best_thr is not None:  fast.append({"name": prov, "value": f"{int(round(best_thr))} tokens/s"})
+                  time.sleep(0.03)
+
+              def parse_cost(v):
+                  try: return float(v.split("$")[1].split("/")[0].strip())
+                  except: return float("inf")
+              cheap.sort(key=lambda x: parse_cost(x["value"]))
+              fast.sort(key=lambda x: int(x["value"].split()[0]), reverse=True)
+
+              return { "cheapest": cheap[:5], "fastest": fast[:5] }
+
+          def main():
+              data = {}
+              data.update(build_model_tops())
+              data.update(build_provider_tops())
+              for k in ["code","multimodal","knowledge","longest_context","cheapest","fastest"]:
+                  data.setdefault(k, [])
+              with open("top-leaderboards.json","w",encoding="utf-8") as f:
+                  json.dump(data, f, indent=2, ensure_ascii=False)
+              print("Wrote top-leaderboards.json")
+
+          if __name__ == "__main__":
+              main()
+          PY
+
+      - name: Run build
+        run: python build_top_leaderboards.py
+
+      - name: Commit & push if changed
+        run: |
+          if ! git diff --quiet -- top-leaderboards.json; then
+            git config user.name  "leaderboards-bot"
+            git config user.email "actions@github.com"
+            git add top-leaderboards.json
+            git commit -m "chore: daily top-leaderboards.json update"
+            git push
+          else
+            echo "No changes"
+          fi
