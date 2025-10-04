@@ -1,8 +1,8 @@
-name: Build from llm-stats.com (scrape & merge JSON)
+name: Build from AI Leaderboards page (scrape & merge JSON)
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # tous les jours à 05:30 UTC
+    - cron: "35 5 * * *"   # tous les jours à 05:35 UTC
   workflow_dispatch:
 
 permissions:
@@ -12,8 +12,8 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     env:
-      # Tu peux remplacer par une URL filtrée (ex: vue Multimodal/Open Models). L’outil scrolle pour charger les lignes.
-      LLM_STATS_URL: https://llm-stats.com/
+      # ➜ METS ICI L’URL EXACTE DE TA PAGE "AI Leaderboards"
+      LEADERBOARD_URL: https://example.com/ai-leaderboards
 
     steps:
       - name: Checkout repo
@@ -31,28 +31,27 @@ jobs:
 
       - name: Write scraper
         run: |
-          cat > scrape_llmstats.mjs <<'JS'
+          cat > scrape_leaderboards.mjs <<'JS'
           import fs from 'node:fs/promises';
           import puppeteer from 'puppeteer';
 
-          const URL = process.env.LLM_STATS_URL || 'https://llm-stats.com/';
+          const URL = process.env.LEADERBOARD_URL;
 
           const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
+          // ---------- utils ----------
           function toFloat(x){
-            if (x === null || x === undefined) return null;
+            if (x == null) return null;
             const s = String(x).replace(/[, $%]/g,'').trim();
-            if (!s || s === '-' || s === '—' || s === '–') return null;
+            if (!s || /^[\-–—]$/.test(s)) return null;
             const f = Number(s);
             return Number.isFinite(f) ? f : null;
           }
-          function parseTokensCell(x){
-            if (x === null || x === undefined) return null;
+          function parseTokens(x){
+            if (x == null) return null;
             let s = String(x).toLowerCase().replace(/[, ]/g,'').replace('tokens','');
-            if (!s || s==='-'||s==='—'||s==='–') return null;
-            // 1_048_576, 1048576
+            if (!s || /^[\-–—]$/.test(s)) return null;
             if (/^\d+$/.test(s)) return Number(s);
-            // 2.1m / 256k
             let m = s.match(/^([\d.]+)m$/); if (m) return Math.round(Number(m[1])*1_000_000);
             m = s.match(/^([\d.]+)k$/);     if (m) return Math.round(Number(m[1])*1_000);
             return null;
@@ -63,90 +62,65 @@ jobs:
             return `${Math.round(n)} tokens`;
           }
 
-          // Map les en-têtes → clefs canoniques
-          function canonicalize(th){
-            const k = th.toLowerCase().replace(/\s+/g,' ').trim();
-            if (/^organization|vendor|provider|company$/.test(k)) return 'org';
-            if (/^model|name$/.test(k)) return 'model';
-            if (/input.*context|context.*length/.test(k)) return 'context';
-            if (/input.*\$.*m|input.*m.*price|price.*per.*1m|price.*\/.*1m/.test(k)) return 'input_per_m';
-            if (/^gpqa/.test(k)) return 'gpqa';
-            if (/^mmmu|multimodal|vision$/.test(k)) return 'mmmu';
-            if (/^mmlu$/.test(k)) return 'mmlu';
-            return null;
+          // Cherche une carte par titre (h2/h3) avec un regex
+          async function grabCardText(page, regex){
+            return page.evaluate((reSrc)=>{
+              const re = new RegExp(reSrc, 'i');
+              const hs = [...document.querySelectorAll('h2, h3')];
+              const h = hs.find(x => re.test(x.innerText.trim()));
+              if (!h) return null;
+              // on remonte jusqu'au conteneur de section (ou on prend le parent direct)
+              let node = h;
+              for (let i=0;i<5 && node && node.tagName !== 'SECTION'; i++) node = node.parentElement;
+              node = node || h.parentElement;
+              return node ? node.innerText : null;
+            }, regex.source);
           }
 
-          // Essaie d’extraire un tableau <table>, sinon un tableau ARIA
-          async function extractRows(page){
-            // Attends que quelque chose ressemblant à des lignes apparaisse
-            await page.waitForSelector('table, [role="table"]', {timeout: 30000}).catch(()=>{});
-            // Scroll pour charger lazy/infinite rows
-            for (let i=0;i<12;i++){
-              await page.evaluate(()=>window.scrollBy(0, window.innerHeight));
-              await sleep(600);
+          // Convertit le texte brut de la carte en lignes de rangs 1..5
+          function parseRankedBlock(blockText, kind){
+            // kind: 'score' (code/mmmu/gpqa) | 'value' (ctx/cheap/fast)
+            if (!blockText) return [];
+            const L = blockText
+              .split(/\n+/)
+              .map(s=>s.replace(/\s+/g,' ').trim())
+              .filter(Boolean);
+
+            // Repère les index des rangs (lignes = "1", "2", ...)
+            const rankIdx = [];
+            for (let i=0;i<L.length;i++){
+              if (/^[1-5]$/.test(L[i])) rankIdx.push(i);
             }
-            // 1) <table>
-            const hasTable = await page.$('table');
-            if (hasTable){
-              return page.evaluate(()=>{
-                const tbl = document.querySelector('table');
-                const head = [...tbl.querySelectorAll('thead th')].map(th=>th.innerText.trim());
-                const bodyRows = [...tbl.querySelectorAll('tbody tr')];
-                const rows = bodyRows.map(tr => [...tr.querySelectorAll('td')].map(td=>td.innerText.trim()));
-                return {head, rows};
-              });
-            }
-            // 2) ARIA table fallback
-            const hasAria = await page.$('[role="table"]');
-            if (hasAria){
-              return page.evaluate(()=>{
-                const table = document.querySelector('[role="table"]');
-                const head = [...table.querySelectorAll('[role="columnheader"]')].map(el=>el.innerText.trim());
-                const rowEls = [...table.querySelectorAll('[role="row"]')].filter(r => r.querySelector('[role="cell"]'));
-                const rows = rowEls.map(r => [...r.querySelectorAll('[role="cell"]')].map(td=>td.innerText.trim()));
-                return {head, rows};
-              });
-            }
-            return {head:[], rows:[]};
-          }
+            if (!rankIdx.length) return [];
 
-          // Calcule tops à partir des objets [{org, model, context, input_per_m, gpqa, mmmu, mmlu}]
-          function computeTops(items){
-            const knowledge = items
-              .filter(r => r.gpqa != null)
-              .sort((a,b)=>b.gpqa-a.gpqa)
-              .slice(0,5)
-              .map(r => ({name: r.model, score: r.gpqa}));
-
-            // Multimodal = MMMU prioritaire, sinon MMLU
-            const multi = items
-              .map(r => ({model:r.model, score: r.mmmu ?? r.mmlu}))
-              .filter(r => r.score != null)
-              .sort((a,b)=>b.score-a.score)
-              .slice(0,5)
-              .map(r => ({name: r.model, score: r.score}));
-
-            // Longest context
-            const ctx = items
-              .filter(r => r.context_tokens != null)
-              .sort((a,b)=>b.context_tokens - a.context_tokens)
-              .slice(0,5)
-              .map(r => ({name: r.model, value: fmtTokens(r.context_tokens)}));
-
-            // Cheapest provider = min Input $/M par org
-            const minByOrg = new Map();
-            for (const r of items){
-              if (r.org && r.input_per_m != null){
-                const prev = minByOrg.get(r.org);
-                minByOrg.set(r.org, prev==null? r.input_per_m : Math.min(prev, r.input_per_m));
+            // Découpe en 5 segments [rank .. nextRank)
+            const rows=[];
+            for (let r=0;r<rankIdx.length;r++){
+              const start = rankIdx[r];
+              const end   = rankIdx[r+1] ?? L.length;
+              const seg   = L.slice(start+1, end); // on saute le numéro
+              // Heuristique: name = 1ère ligne "alphnum/signes", value = dernier nombre/unité plausible
+              let name = seg.find(s => /[A-Za-z0-9]/.test(s)) || '';
+              // value: dernier token chiffré compatible
+              let valLine = [...seg].reverse().find(s => /(\d[\d\.,]*\s*(?:tokens\/s|tokens|\/\s*1M\s*tokens|%|$))/i.test(s));
+              if (!valLine) valLine = seg.find(s => /(\d[\d\.,]*\s*(?:tokens\/s|tokens|\/\s*1M\s*tokens|%|$))/i.test(s));
+              let score = null, value = null;
+              if (valLine){
+                const mPct = valLine.match(/(\d+\.\d+)/);                     // 88.4
+                const mTok = valLine.match(/([\d\.,]+)\s*tokens(?:\/s)?/i);    // 10.0M tokens, 639 tokens/s
+                const mPer = valLine.match(/\$\s*([\d\.,]+)\s*\/\s*1M/i);      // $0.17 / 1M tokens
+                if (kind==='score' && mPct){
+                  score = Number(mPct[1]);
+                } else if (kind==='value' && (mTok || mPer)){
+                  value = mTok ? valLine : `$${Number(mPer[1])} / 1M tokens`;
+                }
               }
+              if (!name) continue;
+              if (kind==='score' && score!=null) rows.push({name, score});
+              if (kind==='value' && value)       rows.push({name, value});
+              if (rows.length===5) break;
             }
-            const cheapest = [...minByOrg.entries()]
-              .map(([org,val]) => ({name: org, value: `$${val.toFixed(2)} / 1M tokens`}))
-              .sort((a,b)=>parseFloat(a.value.slice(1)) - parseFloat(b.value.slice(1)))
-              .slice(0,5);
-
-            return {knowledge, multimodal: multi, longest_context: ctx, cheapest};
+            return rows.slice(0,5);
           }
 
           (async ()=>{
@@ -155,58 +129,39 @@ jobs:
               args: ['--no-sandbox','--disable-setuid-sandbox']
             });
             const page = await browser.newPage();
-            await page.setViewport({width: 1400, height: 900});
-            await page.goto(URL, {waitUntil: 'networkidle2', timeout: 60000});
+            await page.setViewport({width: 1440, height: 900});
+            await page.goto(URL, {waitUntil: 'networkidle2', timeout: 90000});
 
-            const {head, rows} = await extractRows(page);
+            // scroll pour charger (au cas où lazy)
+            for (let i=0;i<10;i++){ await page.evaluate(()=>window.scrollBy(0, window.innerHeight)); await sleep(300); }
+
+            // Récup des 6 cartes (titres tolérants)
+            const codeText   = await grabCardText(page, /(best\s+llm.*code|aider\s+polyglot\s+benchmark)/i);
+            const multiText  = await grabCardText(page, /(best\s+multimodal\s+llm|mmmu\s+benchmark)/i);
+            const knowText   = await grabCardText(page, /(best\s+llm.*knowledge|gpqa\s+benchmark)/i);
+            const ctxText    = await grabCardText(page, /(longest\s+context|max\s+input\s+tokens)/i);
+            const cheapText  = await grabCardText(page, /(cheapest\s+api\s+provider|input\s+cost|maverick\s+input\s+cost)/i);
+            const fastText   = await grabCardText(page, /(fastest\s+api\s+provider|throughput|maverick\s+throughput)/i);
+
+            const code   = parseRankedBlock(codeText,  'score');
+            const multi  = parseRankedBlock(multiText, 'score');
+            const know   = parseRankedBlock(knowText,  'score');
+            const ctx    = parseRankedBlock(ctxText,   'value');
+            const cheap  = parseRankedBlock(cheapText, 'value');
+            const fast   = parseRankedBlock(fastText,  'value');
+
             await browser.close();
 
-            if (!head.length || !rows.length){
-              console.log('No table detected.');
-              process.exit(0);
-            }
-
-            // Map colonnes
-            const map = {};
-            head.forEach((h, idx)=>{
-              const key = canonicalize(h);
-              if (key) map[key] = idx;
-            });
-
-            const items = rows.map(cells=>{
-              const get = (k)=> (map[k] != null ? cells[map[k]] : null);
-              const org   = get('org')   ?? '';
-              const model = get('model') ?? '';
-              const ctx   = get('context');
-              const inpm  = get('input_per_m');
-              const gpqa  = get('gpqa');
-              const mmmu  = get('mmmu');
-              const mmlu  = get('mmlu');
-
-              const obj = {
-                org: String(org).trim(),
-                model: String(model).trim(),
-                context_tokens: parseTokensCell(ctx),
-                input_per_m: toFloat(inpm),
-                gpqa: toFloat(gpqa),
-                mmmu: toFloat(mmmu),
-                mmlu: toFloat(mmlu),
-              };
-              return obj;
-            }).filter(r => r.model);
-
-            const tops = computeTops(items);
-
-            // Fusion avec JSON existant pour conserver "code" et "fastest"
+            // Merge avec JSON existant
             let existing = {};
             try { existing = JSON.parse(await fs.readFile('top-leaderboards.json','utf8')); } catch {}
             const merged = {
-              code: existing?.code ?? [],
-              multimodal: tops.multimodal,
-              knowledge: tops.knowledge,
-              longest_context: tops.longest_context,
-              cheapest: tops.cheapest,
-              fastest: existing?.fastest ?? []
+              code:           code.length  ? code  : (existing.code || []),
+              multimodal:     multi.length ? multi : (existing.multimodal || []),
+              knowledge:      know.length  ? know  : (existing.knowledge || []),
+              longest_context:ctx.length   ? ctx   : (existing.longest_context || []),
+              cheapest:       cheap.length ? cheap : (existing.cheapest || []),
+              fastest:        fast.length  ? fast  : (existing.fastest || []),
             };
 
             await fs.writeFile('top-leaderboards.json', JSON.stringify(merged, null, 2), 'utf8');
@@ -215,7 +170,7 @@ jobs:
           JS
 
       - name: Run scraper
-        run: node scrape_llmstats.mjs
+        run: node scrape_leaderboards.mjs
 
       - name: Commit & push if changed
         run: |
@@ -224,7 +179,7 @@ jobs:
             git config user.name  "leaderboards-bot"
             git config user.email "actions@github.com"
             git add top-leaderboards.json
-            git commit -m "chore: update from llm-stats.com"
+            git commit -m "chore: update from AI Leaderboards page"
             git push
           else
             echo "No changes"
