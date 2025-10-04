@@ -49,7 +49,7 @@ async function parseCard(page, cardEl, isScore){
     const rawVal  = valSpan ? clean(await (await valSpan.getProperty('innerText')).jsonValue()) : ''
     if(!name) continue
     if(isScore){
-      const m = rawVal.match(/(\d{1,3}(?:\.\d+)?)/) // 88.4
+      const m = rawVal.match(/(\d{1,3}(?:\.\d+)?)/)
       if(m) out.push({name, score: parseFloat(m[1])})
     }else{
       out.push({name, value: rawVal})
@@ -59,7 +59,7 @@ async function parseCard(page, cardEl, isScore){
   return out
 }
 
-/** ---------- extraction du grand tableau avec fallbacks pour "Organisation" ---------- */
+/** ---------- extraction du grand tableau (+ logo) ---------- */
 async function extractMainTable(page, maxRows = 30) {
   const tables = await page.$$('table')
   let table = null
@@ -72,41 +72,59 @@ async function extractMainTable(page, maxRows = 30) {
   }
   if (!table) return []
 
-  const headers = await table.$$eval('thead th', ths => ths.map(th => th.innerText.trim()))
-  // Chaque cellule: on tente innerText, puis aria-label, alt, title, textContent.
-  const rows = await table.$$eval('tbody tr', trs =>
-    trs.map(tr => [...tr.querySelectorAll('td')].map(td => {
-      const text = (td.innerText || '').trim()
-      const fallback =
-        td.getAttribute('aria-label') ||
-        (td.querySelector('[aria-label]') && td.querySelector('[aria-label]').getAttribute('aria-label')) ||
-        (td.querySelector('img[alt]') && td.querySelector('img[alt]').getAttribute('alt')) ||
-        (td.querySelector('svg[aria-label]') && td.querySelector('svg[aria-label]').getAttribute('aria-label')) ||
-        td.getAttribute('title') ||
-        (td.textContent || '').trim()
-      return text || fallback || ''
-    }))
-  )
+  // On récupère, pour chaque <td>, le texte ET (si présent) le logo <img src>.
+  const { headers, rows } = await table.evaluate((tbl) => {
+    const absolutize = (src) => {
+      try { return new URL(src, window.location.origin).href } catch(e){ return src || '' }
+    }
+
+    const headers = Array.from(tbl.querySelectorAll('thead th')).map(th => th.innerText.trim())
+    const rows = Array.from(tbl.querySelectorAll('tbody tr')).map(tr =>
+      Array.from(tr.querySelectorAll('td')).map(td => {
+        const text = (td.innerText || '').trim()
+        const aria = td.getAttribute('aria-label') || ''
+        const img  = td.querySelector('img')
+        const logo = img && img.getAttribute('src') ? absolutize(img.getAttribute('src')) : ''
+        const alt  = (img && img.getAttribute('alt')) || ''
+        const title = td.getAttribute('title') || ''
+        const content = (td.textContent || '').trim()
+        const linkEl = td.querySelector('a[href]')
+        const href = linkEl ? linkEl.getAttribute('href') : ''
+        return { text, aria, alt, title, content, logo, href }
+      })
+    )
+    return { headers, rows }
+  })
 
   const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
   const idx = {}
   headers.forEach((h,i)=>{ idx[norm(h)] = i })
 
-  function pick(r, key){ const i = idx[key]; return i!=null ? r[i] : '' }
+  const pickVal = (cell) =>
+    cell.text || cell.aria || cell.alt || cell.title || cell.content || ''
+  const pick = (r, key) => {
+    const i = idx[key]
+    return i!=null ? pickVal(r[i]) : ''
+  }
+  const pickLogo = (r, key) => {
+    const i = idx[key]
+    return i!=null ? (r[i].logo || '') : ''
+  }
 
   const out = []
   for (const r of rows.slice(0, maxRows)) {
     out.push({
-      organization: pick(r, 'organization'),
-      model:        pick(r, 'model'),
-      license:      pick(r, 'license'),
-      parameters_b: pick(r, 'parameters b') || pick(r,'parameters'),
-      context:      pick(r, 'context'),
-      input_per_m:  pick(r, 'input m') || pick(r,'input $ m'),
-      output_per_m: pick(r, 'output m')|| pick(r,'output $ m'),
-      gpqa:         pick(r, 'gpqa'),
-      mmlu:         pick(r, 'mmlu'),
-      mmlu_pro:     pick(r, 'mmlu pro'),
+      organization:      pick(r, 'organization'),
+      organization_logo: pickLogo(r, 'organization'),
+      model:             pick(r, 'model'),
+      license:           pick(r, 'license'),
+      parameters_b:      pick(r, 'parameters b') || pick(r,'parameters'),
+      context:           pick(r, 'context'),
+      input_per_m:       pick(r, 'input m') || pick(r,'input $ m'),
+      output_per_m:      pick(r, 'output m')|| pick(r,'output $ m'),
+      gpqa:              pick(r, 'gpqa'),
+      mmlu:              pick(r, 'mmlu'),
+      mmlu_pro:          pick(r, 'mmlu pro'),
     })
   }
   return out
@@ -141,7 +159,7 @@ async function extractMainTable(page, maxRows = 30) {
   const ctx   = await parseCard(page, ctxEl,   false)
   const cheap = await parseCard(page, cheapEl, false)
   const fast  = await parseCard(page, fastEl,  false)
-  const table = await extractMainTable(page, 30) // top 30
+  const table = await extractMainTable(page, 30)
 
   const data = {
     table,
@@ -150,7 +168,6 @@ async function extractMainTable(page, maxRows = 30) {
   }
 
   await fs.writeFile('top-leaderboards.json', JSON.stringify(data, null, 2), 'utf8')
-
   const counts = Object.fromEntries(Object.entries(data).map(([k,v])=>[k, Array.isArray(v)? v.length : 0]))
   await fs.writeFile('counts.json', JSON.stringify(counts), 'utf8')
   console.log('COUNTS:', counts)
