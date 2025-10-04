@@ -72,12 +72,11 @@ async function extractMainTable(page, maxRows = 30) {
   }
   if (!table) return []
 
-  // On récupère, pour chaque <td>, le texte ET (si présent) le logo <img src>.
+  // On récupère, pour chaque <td>, le texte et le logo <img src>.
   const { headers, rows } = await table.evaluate((tbl) => {
     const absolutize = (src) => {
       try { return new URL(src, window.location.origin).href } catch(e){ return src || '' }
     }
-
     const headers = Array.from(tbl.querySelectorAll('thead th')).map(th => th.innerText.trim())
     const rows = Array.from(tbl.querySelectorAll('tbody tr')).map(tr =>
       Array.from(tr.querySelectorAll('td')).map(td => {
@@ -100,31 +99,74 @@ async function extractMainTable(page, maxRows = 30) {
   const idx = {}
   headers.forEach((h,i)=>{ idx[norm(h)] = i })
 
-  const pickVal = (cell) =>
-    cell.text || cell.aria || cell.alt || cell.title || cell.content || ''
-  const pick = (r, key) => {
+  const pickCell = (r, key) => {
     const i = idx[key]
-    return i!=null ? pickVal(r[i]) : ''
+    return i!=null ? r[i] : null
   }
-  const pickLogo = (r, key) => {
-    const i = idx[key]
-    return i!=null ? (r[i].logo || '') : ''
+  const pickVal = (cell) =>
+    (cell?.text || cell?.aria || cell?.alt || cell?.title || cell?.content || '').trim()
+
+  // dictionnaire pour les noms propres depuis le slug de logo
+  const PRETTY = {
+    xai: 'xAI',
+    openai: 'OpenAI',
+    google: 'Google',
+    anthropic: 'Anthropic',
+    meta: 'Meta',
+    microsoft: 'Microsoft',
+    groq: 'Groq',
+    cerebras: 'Cerebras',
+    sambanova: 'SambaNova',
+    deepseek: 'DeepSeek',
+    deepinfra: 'DeepInfra',
+    novita: 'Novita',
+    qwen: 'Qwen',
+    mistral: 'Mistral',
+    nvidia: 'NVIDIA',
+  }
+  const prettyFromSlug = (slug) => {
+    if (!slug) return ''
+    slug = slug.toLowerCase()
+    if (PRETTY[slug]) return PRETTY[slug]
+    return slug.replace(/[-_]+/g,' ').replace(/\b\w/g, c=>c.toUpperCase())
+  }
+  const cleanOrgText = (s) => {
+    if (!s) return ''
+    s = s.replace(/\b(system\s+)?logo\b/ig,'')
+         .replace(/\bicon\b/ig,'')
+         .replace(/\s+/g,' ')
+         .trim()
+    if (/^xai$/i.test(s)) return 'xAI'
+    return s.replace(/\b\w/g, c=>c.toUpperCase())
   }
 
   const out = []
   for (const r of rows.slice(0, maxRows)) {
+    const orgCell = pickCell(r, 'organization')
+    let orgLogo = orgCell?.logo || ''
+    // slug depuis l'URL du logo (ex: /logos/xai.svg → xai)
+    let slug = ''
+    if (orgLogo) {
+      const m = orgLogo.match(/\/([^\/?#]+)\.(svg|png|jpe?g|webp)(\?.*)?$/i)
+      if (m) slug = m[1].toLowerCase()
+    }
+    let organization = prettyFromSlug(slug)
+    if (!organization) {
+      organization = cleanOrgText(pickVal(orgCell))
+    }
+
     out.push({
-      organization:      pick(r, 'organization'),
-      organization_logo: pickLogo(r, 'organization'),
-      model:             pick(r, 'model'),
-      license:           pick(r, 'license'),
-      parameters_b:      pick(r, 'parameters b') || pick(r,'parameters'),
-      context:           pick(r, 'context'),
-      input_per_m:       pick(r, 'input m') || pick(r,'input $ m'),
-      output_per_m:      pick(r, 'output m')|| pick(r,'output $ m'),
-      gpqa:              pick(r, 'gpqa'),
-      mmlu:              pick(r, 'mmlu'),
-      mmlu_pro:          pick(r, 'mmlu pro'),
+      organization,
+      organization_logo: orgLogo,
+      model:        pickVal(pickCell(r, 'model')),
+      license:      pickVal(pickCell(r, 'license')),
+      parameters_b: pickVal(pickCell(r, 'parameters b')) || pickVal(pickCell(r,'parameters')),
+      context:      pickVal(pickCell(r, 'context')),
+      input_per_m:  pickVal(pickCell(r, 'input m')) || pickVal(pickCell(r,'input $ m')),
+      output_per_m: pickVal(pickCell(r, 'output m'))|| pickVal(pickCell(r,'output $ m')),
+      gpqa:         pickVal(pickCell(r, 'gpqa')),
+      mmlu:         pickVal(pickCell(r, 'mmlu')),
+      mmlu_pro:     pickVal(pickCell(r, 'mmlu pro')),
     })
   }
   return out
