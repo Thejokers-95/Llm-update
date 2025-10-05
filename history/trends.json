@@ -1,0 +1,194 @@
+{
+  "code": {
+    "GPT-5": [
+      {
+        "date": "2025-10-05",
+        "value": 88
+      }
+    ],
+    "Gemini 2.5 Pro Preview 06-05": [
+      {
+        "date": "2025-10-05",
+        "value": 82.2
+      }
+    ],
+    "o3": [
+      {
+        "date": "2025-10-05",
+        "value": 81.3
+      }
+    ],
+    "Gemini 2.5 Pro": [
+      {
+        "date": "2025-10-05",
+        "value": 76.5
+      }
+    ],
+    "DeepSeek-V3.2-Exp": [
+      {
+        "date": "2025-10-05",
+        "value": 74.5
+      }
+    ]
+  },
+  "multimodal": {
+    "GPT-5": [
+      {
+        "date": "2025-10-05",
+        "value": 84.2
+      }
+    ],
+    "o3": [
+      {
+        "date": "2025-10-05",
+        "value": 82.9
+      }
+    ],
+    "Gemini 2.5 Pro Preview 06-05": [
+      {
+        "date": "2025-10-05",
+        "value": 82
+      }
+    ],
+    "o4-mini": [
+      {
+        "date": "2025-10-05",
+        "value": 81.6
+      }
+    ],
+    "Gemini 2.5 Flash": [
+      {
+        "date": "2025-10-05",
+        "value": 79.7
+      }
+    ]
+  },
+  "knowledge": {
+    "Grok-4 Heavy": [
+      {
+        "date": "2025-10-05",
+        "value": 88.4
+      }
+    ],
+    "Grok-4": [
+      {
+        "date": "2025-10-05",
+        "value": 87.5
+      }
+    ],
+    "Gemini 2.5 Pro Preview 06-05": [
+      {
+        "date": "2025-10-05",
+        "value": 86.4
+      }
+    ],
+    "GPT-5": [
+      {
+        "date": "2025-10-05",
+        "value": 85.7
+      }
+    ],
+    "Claude 3.7 Sonnet": [
+      {
+        "date": "2025-10-05",
+        "value": 84.8
+      }
+    ]
+  },
+  "cheapest": {
+    "DeepInfra": [
+      {
+        "date": "2025-10-05",
+        "value": 0.17
+      }
+    ],
+    "Novita": [
+      {
+        "date": "2025-10-05",
+        "value": 0.17
+      }
+    ],
+    "Lambda": [
+      {
+        "date": "2025-10-05",
+        "value": 0.18
+      }
+    ],
+    "Groq": [
+      {
+        "date": "2025-10-05",
+        "value": 0.2
+      }
+    ],
+    "Fireworks": [
+      {
+        "date": "2025-10-05",
+        "value": 0.22
+      }
+    ]
+  },
+  "fastest": {
+    "Sambanova": [
+      {
+        "date": "2025-10-05",
+        "value": 639
+      }
+    ],
+    "Groq": [
+      {
+        "date": "2025-10-05",
+        "value": 307
+      }
+    ],
+    "Together": [
+      {
+        "date": "2025-10-05",
+        "value": 98
+      }
+    ],
+    "Lambda": [
+      {
+        "date": "2025-10-05",
+        "value": 94
+      }
+    ],
+    "DeepInfra": [
+      {
+        "date": "2025-10-05",
+        "value": 84
+      }
+    ]
+  },
+  "longest_context": {
+    "Llama 4 Scout": [
+      {
+        "date": "2025-10-05",
+        "value": 10000000
+      }
+    ],
+    "Gemini 1.5 Pro": [
+      {
+        "date": "2025-10-05",
+        "value": 2100000
+      }
+    ],
+    "Gemini 1.5 Flash": [
+      {
+        "date": "2025-10-05",
+        "value": 1000000
+      }
+    ],
+    "Gemini 1.5 Flash 8B": [
+      {
+        "date": "2025-10-05",
+        "value": 1000000
+      }
+    ],
+    "Gemini 2.0 Flash": [
+      {
+        "date": "2025-10-05",
+        "value": 1000000
+      }
+    ]
+  }
+}
