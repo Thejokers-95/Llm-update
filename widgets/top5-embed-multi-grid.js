@@ -1,7 +1,10 @@
-// widgets/top5-embed-multi-grid.js — v1 (Shadow DOM + CSS Grid, multi-cartes)
+// widgets/top5-embed-multi-grid.js — v1.1 (Shadow DOM + CSS Grid, multi-cartes, lien source)
 (function () {
   const JSON_URL_DEFAULT =
     'https://cdn.jsdelivr.net/gh/Thejokers-95/Llm-update@main/top-leaderboards.json';
+
+  // 👉 Page source (ton site)
+  const SOURCE_URL = 'https://www.ia-insights.fr/classement-des-meilleurs-llm/';
 
   const LABELS = {
     code: 'Meilleur LLM – Code',
@@ -44,7 +47,11 @@
       .right{
         white-space:nowrap; font-variant-numeric:tabular-nums;
       }
-      .ft{ color:#64748b; font-size:12px; padding:8px 12px; border-top:1px solid #f1f5f9 }
+      .ft{
+        color:#64748b; font-size:12px; padding:8px 12px; border-top:1px solid #f1f5f9
+      }
+      .ft a{ color:#0f172a; text-decoration:none; border-bottom:1px dotted #94a3b8 }
+      .ft a:hover{ text-decoration:none; border-bottom-color:#0f172a }
       .err{ color:#b91c1c; font-size:12px; padding:10px 12px }
     `;
   }
@@ -62,6 +69,12 @@
       err.className = 'err';
       err.textContent = 'Aucune donnée';
       wrap.appendChild(err);
+
+      const ft = document.createElement('div');
+      ft.className = 'ft';
+      ft.innerHTML = `Source : <a href="${SOURCE_URL}" target="_blank" rel="noopener">IA Insights — Classement des meilleurs LLM</a>`;
+      wrap.appendChild(ft);
+
       root.innerHTML = ''; root.appendChild(wrap);
       return;
     }
@@ -82,7 +95,8 @@
 
     const ft = document.createElement('div');
     ft.className = 'ft';
-    ft.textContent = 'Source: llm-stats.com';
+    // Lien vers TA page (source) + mention d’origine des données
+    ft.innerHTML = `Source : <a href="${SOURCE_URL}" target="_blank" rel="noopener">IA Insights — Classement des meilleurs LLM</a> · Données : llm-stats.com`;
 
     wrap.appendChild(list);
     wrap.appendChild(ft);
@@ -117,7 +131,8 @@
           const shadow = el.shadowRoot || el.attachShadow({mode:'open'});
           const style = document.createElement('style'); style.textContent = cardCSS();
           const box = document.createElement('div'); box.className = 'card';
-          box.innerHTML = `<div class="hd">Top 5</div><div class="err">Erreur de chargement</div>`;
+          box.innerHTML = `<div class="hd">Top 5</div><div class="err">Erreur de chargement</div>
+                           <div class="ft">Source : <a href="${SOURCE_URL}" target="_blank" rel="noopener">IA Insights — Classement des meilleurs LLM</a></div>`;
           shadow.innerHTML=''; shadow.appendChild(style); shadow.appendChild(box);
         });
         console.error('[llm-top5] load failed:', e);
