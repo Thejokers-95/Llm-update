@@ -24,7 +24,7 @@
     .llm-embed .row:first-child{border-top:0}
     .llm-embed .rank{width:26px;height:26px;border-radius:9999px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;margin-right:8px}
     .llm-embed .name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-    .llm-embed .val{font-variant-numeric:tabular-nums}
+    .llm-embed .val{font-variant-numeric:tabular-nums; white-space:nowrap; flex:0 0 auto; margin-left:12px}
     .llm-embed .ft{color:#64748b;font-size:12px;padding:8px 12px;border-top:1px solid #f1f5f9}
     .llm-embed .err{color:#b91c1c;font-size:12px;padding:10px 12px}
     `;
