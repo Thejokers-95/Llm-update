@@ -27,13 +27,14 @@
     style.textContent = `
     .llm-embed{border:1px solid #e5e7eb;border-radius:12px;background:#fff;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a}
     .llm-embed .hd{padding:12px 14px;border-bottom:1px solid #f1f5f9;font-weight:600}
-    .llm-embed .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-top:1px dashed #f1f5f9}
     .llm-embed .row:first-child{border-top:0}
     .llm-embed .rank{width:26px;height:26px;border-radius:9999px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;margin-right:8px}
-    .llm-embed .name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-    .llm-embed .val{font-variant-numeric:tabular-nums; white-space:nowrap; flex:0 0 auto; margin-left:12px}
     .llm-embed .ft{color:#64748b;font-size:12px;padding:8px 12px;border-top:1px solid #f1f5f9}
     .llm-embed .err{color:#b91c1c;font-size:12px;padding:10px 12px}
+    .llm-embed .row { align-items: center; }
+    .llm-embed .val { white-space: nowrap; flex: 0 0 auto; margin-left: 12px; }
+    /* on s'assure que le nom peut se compacter si besoin */
+    .llm-embed .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     `;
     document.head.appendChild(style);
   }
