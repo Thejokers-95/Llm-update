@@ -1,14 +1,6 @@
-// Embeds Top 5 (multi-cibles), robuste + debug.
-// Modes :
-//  - Single : <script src=".../top5-embed.js" data-target="#id" data-section="code"></script>
-//  - Multi  : <div class="llm-top5" data-section="code"></div> (xN)
-//             <script src=".../top5-embed.js" data-selector=".llm-top5" data-json=".../top-leaderboards.json"></script>
-
 (function () {
-  // --- capture la balise <script> au PARSING (pas dans DOMContentLoaded) ---
   const S = document.currentScript || (function(){
-    const sc = document.getElementsByTagName('script');
-    return sc[sc.length - 1];
+    const sc = document.getElementsByTagName('script'); return sc[sc.length - 1];
   })();
 
   const cfg = {
@@ -16,14 +8,12 @@
     singleTargetSel: (S && S.getAttribute('data-target')) || '',
     singleSection: ((S && S.getAttribute('data-section')) || 'code').toLowerCase(),
     multiSelector: (S && S.getAttribute('data-selector')) || '.llm-top5',
-    jsonUrl:
-      (S && S.getAttribute('data-json')) ||
-      'https://cdn.jsdelivr.net/gh/Thejokers-95/Llm-update@main/top-leaderboards.json'
+    jsonUrl: (S && S.getAttribute('data-json')) ||
+             'https://cdn.jsdelivr.net/gh/Thejokers-95/Llm-update@main/top-leaderboards.json'
   };
   const log = (...a)=> cfg.debug && console.log('[top5-embed]', ...a);
   const error = (...a)=> cfg.debug && console.error('[top5-embed]', ...a);
 
-  // injecte le CSS une seule fois
   if (!document.getElementById('llm-embed-style')) {
     const style = document.createElement('style');
     style.id = 'llm-embed-style';
@@ -57,67 +47,73 @@
     box.innerHTML = `<div class="hd">Top 5</div><div class="err">${msg}</div>`;
     el.innerHTML = ''; el.appendChild(box);
   }
-
   function renderInto(el, section, data){
     if (!el) return;
     const arr = (data[section] || []).slice(0,5);
     if (!arr.length){ renderError(el, 'Aucune donnée'); return; }
-
     const box = document.createElement('div');
     box.className = 'llm-embed';
     const title = labels[section] || 'Top 5';
     box.innerHTML = `<div class="hd">${title}</div>`;
     const list = document.createElement('div');
     arr.forEach((it,i)=>{
-      const row = document.createElement('div');
-      row.className = 'row';
+      const row = document.createElement('div'); row.className='row';
       row.innerHTML = `
         <div style="display:flex;align-items:center;min-width:0;flex:1">
           <span class="rank">${i+1}</span>
           <span class="name">${(it.name||'').replace(/</g,'&lt;')}</span>
         </div>
-        <div class="val">${it.score!=null ? (Number(it.score).toFixed(1)+'%') : (it.value||'')}</div>
-      `;
+        <div class="val">${it.score!=null ? (Number(it.score).toFixed(1)+'%') : (it.value||'')}</div>`;
       list.appendChild(row);
     });
-    box.appendChild(list);
-    const ft = document.createElement('div');
-    ft.className = 'ft';
-    ft.textContent = 'Source: llm-stats.com';
-    box.appendChild(ft);
-    el.innerHTML = '';
-    el.appendChild(box);
+    const ft = document.createElement('div'); ft.className='ft'; ft.textContent='Source: llm-stats.com';
+    box.appendChild(list); box.appendChild(ft);
+    el.innerHTML=''; el.appendChild(box);
   }
 
-  function run(){
-    log('fetching', cfg.jsonUrl);
-    fetch(cfg.jsonUrl, {cache:'no-store'}).then(r=>{
-      if (!r.ok) throw new Error('HTTP '+r.status);
-      return r.json();
-    }).then(data=>{
-      if (cfg.singleTargetSel) {
-        const el = document.querySelector(cfg.singleTargetSel);
-        if (!el){ error('target not found:', cfg.singleTargetSel); return; }
-        renderInto(el, cfg.singleSection, data);
-      } else {
-        const nodes = Array.from(document.querySelectorAll(cfg.multiSelector));
-        if (!nodes.length){ error('no nodes for selector', cfg.multiSelector); return; }
-        nodes.forEach(el=>{
-          const section = (el.getAttribute('data-section') || 'code').toLowerCase();
-          renderInto(el, section, data);
-        });
-      }
-    }).catch(e=>{
-      error('load failed:', e);
-      if (cfg.singleTargetSel){
-        const el = document.querySelector(cfg.singleTargetSel);
-        if (el) renderError(el, 'Erreur de chargement');
-      } else {
-        document.querySelectorAll(cfg.multiSelector).forEach(el=>renderError(el,'Erreur de chargement'));
-      }
+  function waitFor(sel, tries=10, delay=100){
+    return new Promise(resolve=>{
+      const t = setInterval(()=>{
+        const el = document.querySelector(sel);
+        if (el || --tries<=0){ clearInterval(t); resolve(el); }
+      }, delay);
     });
   }
 
-  if (document.readyState !== 'loading') run();
-  else document.addEventListener('DOMContentLoaded', run, {once:true});
+  function run(data){
+    if (cfg.singleTargetSel){
+      waitFor(cfg.singleTargetSel).then(el=>{
+        if (el){ renderInto(el, cfg.singleSection, data); }
+        else {
+          // fallback: si des .llm-top5 existent, on passe en mode multi
+          const nodes = document.querySelectorAll(cfg.multiSelector);
+          if (nodes.length){
+            nodes.forEach(n=>{
+              const sec = (n.getAttribute('data-section') || 'code').toLowerCase();
+              renderInto(n, sec, data);
+            });
+          } else {
+            error('target not found:', cfg.singleTargetSel);
+          }
+        }
+      });
+    } else {
+      const nodes = document.querySelectorAll(cfg.multiSelector);
+      if (!nodes.length){ error('no nodes for selector', cfg.multiSelector); return; }
+      nodes.forEach(n=>{
+        const sec = (n.getAttribute('data-section') || 'code').toLowerCase();
+        renderInto(n, sec, data);
+      });
+    }
+  }
+
+  function start(){
+    fetch(cfg.jsonUrl, {cache:'no-store'})
+      .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(data=>run(data))
+      .catch(e=>{ error('load failed:', e); });
+  }
+
+  if (document.readyState !== 'loading') start();
+  else document.addEventListener('DOMContentLoaded', start, {once:true});
 })();
