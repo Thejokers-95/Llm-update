@@ -1,0 +1,44 @@
+name: Leaderboards – Build history/trends
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "50 6 * * *"   # un peu après le scrape quotidien
+
+permissions:
+  contents: write
+
+concurrency:
+  group: leaderboards-history
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build history & trends
+        run: |
+          node history/build_history.mjs
+
+      - name: Commit & push results
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore(history): update history.csv & trends.json"
+            git push
+          else
+            echo "No changes to commit."
+          fi
