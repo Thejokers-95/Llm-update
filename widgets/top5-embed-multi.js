@@ -1,7 +1,4 @@
-// Multi-only Top5 embed (zéro data-target, zéro dépendance à currentScript).
-// Injecte le style une seule fois et rend toutes les .llm-top5 de la page.
-// JSON_URL peut être surchargée en définissant window.LLM_TOP5_JSON avant le script.
-
+// widgets/top5-embed-multi.js (v2) — classes namespacées pour éviter les conflits de thème
 (function () {
   const JSON_URL_DEFAULT =
     'https://cdn.jsdelivr.net/gh/Thejokers-95/Llm-update@main/top-leaderboards.json';
@@ -26,15 +23,14 @@
     style.id = 'llm-embed-style';
     style.textContent = `
     .llm-embed{border:1px solid #e5e7eb;border-radius:12px;background:#fff;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#0f172a}
-    .llm-embed .hd{padding:12px 14px;border-bottom:1px solid #f1f5f9;font-weight:600}
-    .llm-embed .row:first-child{border-top:0}
-    .llm-embed .rank{width:26px;height:26px;border-radius:9999px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;margin-right:8px}
-    .llm-embed .ft{color:#64748b;font-size:12px;padding:8px 12px;border-top:1px solid #f1f5f9}
-    .llm-embed .err{color:#b91c1c;font-size:12px;padding:10px 12px}
-    .llm-embed .row { align-items: center; }
-    .llm-embed .val { white-space: nowrap; flex: 0 0 auto; margin-left: 12px; }
-    /* on s'assure que le nom peut se compacter si besoin */
-    .llm-embed .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .llm-embed .llm-hd{padding:12px 14px;border-bottom:1px solid #f1f5f9;font-weight:600}
+    .llm-embed .llm-row{display:flex;flex-wrap:nowrap;justify-content:space-between;align-items:center;padding:10px 12px;border-top:1px dashed #f1f5f9}
+    .llm-embed .llm-row:first-child{border-top:0}
+    .llm-embed .llm-rank{width:26px;height:26px;border-radius:9999px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;margin-right:8px;flex:0 0 auto}
+    .llm-embed .llm-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+    .llm-embed .llm-val{white-space:nowrap;flex:0 0 auto;margin-left:12px;font-variant-numeric:tabular-nums}
+    .llm-embed .llm-ft{color:#64748b;font-size:12px;padding:8px 12px;border-top:1px solid #f1f5f9}
+    .llm-embed .llm-err{color:#b91c1c;font-size:12px;padding:10px 12px}
     `;
     document.head.appendChild(style);
   }
@@ -42,7 +38,7 @@
   function renderError(el, msg){
     const box = document.createElement('div');
     box.className = 'llm-embed';
-    box.innerHTML = `<div class="hd">Top 5</div><div class="err">${msg}</div>`;
+    box.innerHTML = `<div class="llm-hd">Top 5</div><div class="llm-err">${msg}</div>`;
     el.innerHTML = ''; el.appendChild(box);
   }
 
@@ -53,24 +49,24 @@
     const box = document.createElement('div');
     box.className = 'llm-embed';
     const title = labels[section] || 'Top 5';
-    box.innerHTML = `<div class="hd">${title}</div>`;
+    box.innerHTML = `<div class="llm-hd">${title}</div>`;
 
     const list = document.createElement('div');
     arr.forEach((it,i)=>{
       const row = document.createElement('div');
-      row.className = 'row';
+      row.className = 'llm-row';
       row.innerHTML = `
         <div style="display:flex;align-items:center;min-width:0;flex:1">
-          <span class="rank">${i+1}</span>
-          <span class="name">${(it.name||'').replace(/</g,'&lt;')}</span>
+          <span class="llm-rank">${i+1}</span>
+          <span class="llm-name">${(it.name||'').replace(/</g,'&lt;')}</span>
         </div>
-        <div class="val">${it.score!=null ? (Number(it.score).toFixed(1)+'%') : (it.value||'')}</div>
+        <div class="llm-val">${it.score!=null ? (Number(it.score).toFixed(1)+'%') : (it.value||'')}</div>
       `;
       list.appendChild(row);
     });
 
     const ft = document.createElement('div');
-    ft.className = 'ft';
+    ft.className = 'llm-ft';
     ft.textContent = 'Source: llm-stats.com';
 
     box.appendChild(list);
