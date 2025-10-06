@@ -94,7 +94,7 @@
     {
       "organization": "Anthropic",
       "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
-      "model": "Claude Sonnet 4.5\nNEW",
+      "model": "Claude Sonnet 4.5",
       "license": "Proprietary",
       "parameters_b": "-",
       "context": "200,000",
@@ -237,7 +237,7 @@
     {
       "organization": "Deepseek",
       "organization_logo": "https://llm-stats.com/_next/image?url=%2Flogos%2Fdeepseek.webp&w=32&q=75",
-      "model": "DeepSeek-V3.2-Exp\nNEW",
+      "model": "DeepSeek-V3.2-Exp",
       "license": "Open",
       "parameters_b": "685",
       "context": "163,840",
