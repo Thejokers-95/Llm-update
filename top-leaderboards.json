@@ -198,7 +198,7 @@
     {
       "organization": "Zai Org",
       "organization_logo": "https://llm-stats.com/logos/zai-org.svg",
-      "model": "GLM-4.6\nNEW",
+      "model": "GLM-4.6",
       "license": "Open",
       "parameters_b": "357",
       "context": "131,072",
