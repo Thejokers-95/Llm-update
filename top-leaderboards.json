@@ -53,6 +53,19 @@
       "mmlu_pro": "-"
     },
     {
+      "organization": "xAI",
+      "organization_logo": "https://llm-stats.com/logos/xai.svg",
+      "model": "Grok 4 Fast",
+      "license": "Proprietary",
+      "parameters_b": "-",
+      "context": "2,000,000",
+      "input_per_m": "$0.20",
+      "output_per_m": "$0.50",
+      "gpqa": "85.7%",
+      "mmlu": "-",
+      "mmlu_pro": "-"
+    },
+    {
       "organization": "Anthropic",
       "organization_logo": "https://llm-stats.com/logos/anthropic.svg",
       "model": "Claude 3.7 Sonnet",
@@ -376,19 +389,6 @@
       "gpqa": "75.4%",
       "mmlu": "-",
       "mmlu_pro": "-"
-    },
-    {
-      "organization": "Moonshotai",
-      "organization_logo": "https://llm-stats.com/logos/moonshotai.svg",
-      "model": "Kimi K2 Instruct",
-      "license": "Open",
-      "parameters_b": "1000",
-      "context": "131,072",
-      "input_per_m": "$0.57",
-      "output_per_m": "$2.30",
-      "gpqa": "75.1%",
-      "mmlu": "89.5%",
-      "mmlu_pro": "81.1%"
     }
   ],
   "code": [
@@ -453,8 +453,8 @@
       "score": 85.7
     },
     {
-      "name": "Claude 3.7 Sonnet",
-      "score": 84.8
+      "name": "Grok 4 Fast",
+      "score": 85.7
     }
   ],
   "longest_context": [
@@ -467,15 +467,15 @@
       "value": "2.1M tokens"
     },
     {
+      "name": "Grok 4 Fast",
+      "value": "2.0M tokens"
+    },
+    {
       "name": "Gemini 1.5 Flash",
       "value": "1.0M tokens"
     },
     {
       "name": "Gemini 1.5 Flash 8B",
-      "value": "1.0M tokens"
-    },
-    {
-      "name": "Gemini 2.0 Flash",
       "value": "1.0M tokens"
     }
   ],
