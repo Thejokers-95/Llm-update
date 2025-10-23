@@ -10,8 +10,8 @@
       "input_per_m": "-",
       "output_per_m": "-",
       "gpqa": "88.4%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "xAI",
@@ -23,8 +23,8 @@
       "input_per_m": "$3.00",
       "output_per_m": "$15.00",
       "gpqa": "87.5%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Google",
@@ -36,8 +36,8 @@
       "input_per_m": "$1.25",
       "output_per_m": "$10.00",
       "gpqa": "86.4%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -49,8 +49,8 @@
       "input_per_m": "$1.25",
       "output_per_m": "$10.00",
       "gpqa": "85.7%",
-      "mmlu": "92.5%",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "xAI",
@@ -62,8 +62,8 @@
       "input_per_m": "$0.20",
       "output_per_m": "$0.50",
       "gpqa": "85.7%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Anthropic",
@@ -75,8 +75,8 @@
       "input_per_m": "$3.00",
       "output_per_m": "$15.00",
       "gpqa": "84.8%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "xAI",
@@ -88,8 +88,8 @@
       "input_per_m": "$3.00",
       "output_per_m": "$15.00",
       "gpqa": "84.6%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "xAI",
@@ -101,8 +101,8 @@
       "input_per_m": "$0.30",
       "output_per_m": "$0.50",
       "gpqa": "84.0%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Anthropic",
@@ -114,8 +114,8 @@
       "input_per_m": "$3.00",
       "output_per_m": "$15.00",
       "gpqa": "83.4%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -127,8 +127,8 @@
       "input_per_m": "$2.00",
       "output_per_m": "$8.00",
       "gpqa": "83.3%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Google",
@@ -140,8 +140,8 @@
       "input_per_m": "$1.25",
       "output_per_m": "$10.00",
       "gpqa": "83.0%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Google",
@@ -153,8 +153,8 @@
       "input_per_m": "$0.30",
       "output_per_m": "$2.50",
       "gpqa": "82.8%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -166,8 +166,8 @@
       "input_per_m": "$0.25",
       "output_per_m": "$2.00",
       "gpqa": "82.3%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -179,8 +179,8 @@
       "input_per_m": "$1.10",
       "output_per_m": "$4.40",
       "gpqa": "81.4%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Qwen",
@@ -192,8 +192,8 @@
       "input_per_m": "$0.30",
       "output_per_m": "$3.00",
       "gpqa": "81.1%",
-      "mmlu": "-",
-      "mmlu_pro": "84.4%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Deepseek",
@@ -205,8 +205,8 @@
       "input_per_m": "$0.50",
       "output_per_m": "$2.15",
       "gpqa": "81.0%",
-      "mmlu": "-",
-      "mmlu_pro": "85.0%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Zai Org",
@@ -218,8 +218,8 @@
       "input_per_m": "$0.60",
       "output_per_m": "$2.00",
       "gpqa": "81.0%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Anthropic",
@@ -231,8 +231,8 @@
       "input_per_m": "$15.00",
       "output_per_m": "$75.00",
       "gpqa": "80.9%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -244,8 +244,8 @@
       "input_per_m": "$0.09",
       "output_per_m": "$0.45",
       "gpqa": "80.1%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Deepseek",
@@ -257,8 +257,8 @@
       "input_per_m": "$0.27",
       "output_per_m": "$0.41",
       "gpqa": "79.9%",
-      "mmlu": "-",
-      "mmlu_pro": "85.0%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Anthropic",
@@ -270,8 +270,8 @@
       "input_per_m": "$15.00",
       "output_per_m": "$75.00",
       "gpqa": "79.6%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Zai Org",
@@ -283,8 +283,8 @@
       "input_per_m": "$0.40",
       "output_per_m": "$1.60",
       "gpqa": "79.1%",
-      "mmlu": "-",
-      "mmlu_pro": "84.6%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -296,8 +296,8 @@
       "input_per_m": "-",
       "output_per_m": "-",
       "gpqa": "79.0%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -309,8 +309,8 @@
       "input_per_m": "$15.00",
       "output_per_m": "$60.00",
       "gpqa": "78.0%",
-      "mmlu": "91.8%",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Qwen",
@@ -322,8 +322,8 @@
       "input_per_m": "$0.15",
       "output_per_m": "$0.80",
       "gpqa": "77.5%",
-      "mmlu": "-",
-      "mmlu_pro": "83.0%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "OpenAI",
@@ -335,8 +335,8 @@
       "input_per_m": "$1.10",
       "output_per_m": "$4.40",
       "gpqa": "77.2%",
-      "mmlu": "86.9%",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Qwen",
@@ -348,8 +348,8 @@
       "input_per_m": "$0.15",
       "output_per_m": "$1.50",
       "gpqa": "77.2%",
-      "mmlu": "-",
-      "mmlu_pro": "82.7%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "NVIDIA",
@@ -361,8 +361,8 @@
       "input_per_m": "-",
       "output_per_m": "-",
       "gpqa": "76.0%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Moonshotai",
@@ -374,8 +374,8 @@
       "input_per_m": "$0.60",
       "output_per_m": "$2.50",
       "gpqa": "75.8%",
-      "mmlu": "90.2%",
-      "mmlu_pro": "82.5%"
+      "mmlu": "",
+      "mmlu_pro": ""
     },
     {
       "organization": "Anthropic",
@@ -387,8 +387,8 @@
       "input_per_m": "$3.00",
       "output_per_m": "$15.00",
       "gpqa": "75.4%",
-      "mmlu": "-",
-      "mmlu_pro": "-"
+      "mmlu": "",
+      "mmlu_pro": ""
     }
   ],
   "code": [
