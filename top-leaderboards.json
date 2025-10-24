@@ -394,133 +394,133 @@
   "code": [
     {
       "name": "GPT-5",
-      "score": 88
+      "score": 1
     },
     {
       "name": "Gemini 2.5 Pro Preview 06-05",
-      "score": 82.2
+      "score": 2
     },
     {
       "name": "o3",
-      "score": 81.3
+      "score": 3
     },
     {
       "name": "Gemini 2.5 Pro",
-      "score": 76.5
+      "score": 4
     },
     {
       "name": "DeepSeek-V3.2-Exp",
-      "score": 74.5
+      "score": 5
     }
   ],
   "multimodal": [
     {
       "name": "GPT-5",
-      "score": 84.2
-    },
-    {
-      "name": "o3",
-      "score": 82.9
+      "score": 1
     },
     {
       "name": "Gemini 2.5 Pro Preview 06-05",
-      "score": 82
+      "score": 2
     },
     {
-      "name": "o4-mini",
-      "score": 81.6
+      "name": "o3",
+      "score": 3
     },
     {
-      "name": "Gemini 2.5 Flash",
-      "score": 79.7
+      "name": "Gemini 2.5 Pro",
+      "score": 4
+    },
+    {
+      "name": "DeepSeek-V3.2-Exp",
+      "score": 5
     }
   ],
   "knowledge": [
     {
-      "name": "Grok-4 Heavy",
-      "score": 88.4
-    },
-    {
-      "name": "Grok-4",
-      "score": 87.5
+      "name": "GPT-5",
+      "score": 1
     },
     {
       "name": "Gemini 2.5 Pro Preview 06-05",
-      "score": 86.4
+      "score": 2
     },
     {
-      "name": "GPT-5",
-      "score": 85.7
+      "name": "o3",
+      "score": 3
     },
     {
-      "name": "Grok 4 Fast",
-      "score": 85.7
+      "name": "Gemini 2.5 Pro",
+      "score": 4
+    },
+    {
+      "name": "DeepSeek-V3.2-Exp",
+      "score": 5
     }
   ],
   "longest_context": [
     {
-      "name": "Llama 4 Scout",
-      "value": "10.0M tokens"
+      "name": "GPT-5",
+      "value": "1"
     },
     {
-      "name": "Gemini 1.5 Pro",
-      "value": "2.1M tokens"
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "value": "2"
     },
     {
-      "name": "Grok 4 Fast",
-      "value": "2.0M tokens"
+      "name": "o3",
+      "value": "3"
     },
     {
-      "name": "Gemini 1.5 Flash",
-      "value": "1.0M tokens"
+      "name": "Gemini 2.5 Pro",
+      "value": "4"
     },
     {
-      "name": "Gemini 1.5 Flash 8B",
-      "value": "1.0M tokens"
+      "name": "DeepSeek-V3.2-Exp",
+      "value": "5"
     }
   ],
   "cheapest": [
     {
-      "name": "DeepInfra",
-      "value": "$0.17 / 1M tokens"
+      "name": "GPT-5",
+      "value": "1"
     },
     {
-      "name": "Novita",
-      "value": "$0.17 / 1M tokens"
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "value": "2"
     },
     {
-      "name": "Lambda",
-      "value": "$0.18 / 1M tokens"
+      "name": "o3",
+      "value": "3"
     },
     {
-      "name": "Groq",
-      "value": "$0.20 / 1M tokens"
+      "name": "Gemini 2.5 Pro",
+      "value": "4"
     },
     {
-      "name": "Fireworks",
-      "value": "$0.22 / 1M tokens"
+      "name": "DeepSeek-V3.2-Exp",
+      "value": "5"
     }
   ],
   "fastest": [
     {
-      "name": "Sambanova",
-      "value": "639 tokens/s"
+      "name": "GPT-5",
+      "value": "1"
     },
     {
-      "name": "Groq",
-      "value": "307 tokens/s"
+      "name": "Gemini 2.5 Pro Preview 06-05",
+      "value": "2"
     },
     {
-      "name": "Together",
-      "value": "98 tokens/s"
+      "name": "o3",
+      "value": "3"
     },
     {
-      "name": "Lambda",
-      "value": "94 tokens/s"
+      "name": "Gemini 2.5 Pro",
+      "value": "4"
     },
     {
-      "name": "DeepInfra",
-      "value": "84 tokens/s"
+      "name": "DeepSeek-V3.2-Exp",
+      "value": "5"
     }
   ]
 }
